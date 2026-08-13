@@ -1,0 +1,21 @@
+{
+  "name": "telegram-chat-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Telegram AI auto-responder with review-before-send pipeline",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test:db": "npm run build && node dist/scripts/test-db.js",
+    "start": "npm run build && node dist/index.js"
+  },
+  "license": "UNLICENSED",
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "mongoose": "^9.9.2"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "typescript": "^7.0.2"
+  }
+}
