@@ -5,24 +5,29 @@ import { ensureMasterPrompt } from '../services/master-prompt';
 async function main(): Promise<void> {
   await connectDb();
 
-  const conversation = await ConversationModel.create({
-    chatId: 'test-12345',
-    peerUsername: 'test_peer',
-    messages: [
-      {
-        role: 'them',
-        text: 'Hey Mike, is the project ready?',
-        timestamp: new Date(),
+  const conversation = await ConversationModel.findOneAndUpdate(
+    { chatId: 'test-12345' },
+    {
+      $set: {
+        peerUsername: 'test_peer',
+        messages: [
+          {
+            role: 'them',
+            text: 'Hey Mike, is the project ready?',
+            timestamp: new Date(),
+          },
+          {
+            role: 'me',
+            text: 'Almost, wrapping it up today',
+            timestamp: new Date(),
+          },
+        ],
+        summary: '',
+        lastUpdated: new Date(),
       },
-      {
-        role: 'me',
-        text: 'Almost, wrapping it up today',
-        timestamp: new Date(),
-      },
-    ],
-    summary: '',
-    lastUpdated: new Date(),
-  });
+    },
+    { returnDocument: 'after', upsert: true }
+  );
 
   const readBack = await ConversationModel.findById(conversation._id).lean();
   console.log('Conversation doc written and read back:');
