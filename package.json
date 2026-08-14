@@ -7,13 +7,15 @@
   "scripts": {
     "build": "tsc",
     "test:db": "npm run build && node dist/scripts/test-db.js",
+    "login": "npm run build && node dist/scripts/login-telegram.js",
     "start": "npm run build && node dist/index.js"
   },
   "license": "UNLICENSED",
   "dependencies": {
     "dotenv": "^17.4.2",
     "mongoose": "^9.9.2",
-    "node-telegram-bot-api": "^1.2.0"
+    "node-telegram-bot-api": "^1.2.0",
+    "telegram": "^2.26.22"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",

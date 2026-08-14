@@ -32,6 +32,7 @@ export function startReviewBot(): void {
     if (msg.text?.trim() === '/start') {
       try {
         await bot.sendMessage(ownerChatId, STATIC_REPLY);
+        console.log('[review-bot] message sent to owner');
       } catch (err) {
         console.error('[review-bot] failed to reply to /start:', err);
       }
