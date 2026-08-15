@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Telegram Chat Agent — Admin</title>
+    <link rel="stylesheet" href="/admin.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Telegram Chat Agent</h1>
+      <span id="who"></span>
+      <button id="logout" class="btn" hidden>Log out</button>
+    </header>
+
+    <section id="login-view" hidden>
+      <form id="login-form" class="card">
+        <h2>Log in</h2>
+        <label>Username <input id="login-username" type="text" autocomplete="username" required /></label>
+        <label>Password <input id="login-password" type="password" autocomplete="current-password" required /></label>
+        <p id="login-error" class="error" hidden></p>
+        <button type="submit" class="btn primary">Log in</button>
+      </form>
+    </section>
+
+    <section id="app-view" hidden>
+      <nav class="tabs">
+        <button id="tab-prompts" class="btn tab active">Prompts</button>
+        <button id="tab-chats" class="btn tab">Chats</button>
+      </nav>
+
+      <section id="prompts-view">
+        <div class="layout">
+          <aside class="card">
+            <h3>Prompts</h3>
+            <ul id="prompt-list" class="list"></ul>
+            <button id="new-prompt" class="btn">+ New prompt</button>
+          </aside>
+          <div class="card grow">
+            <h3 id="prompt-editor-title">Select a prompt</h3>
+            <form id="prompt-form" hidden>
+              <label>Key (read-only) <input id="f-key" type="text" disabled /></label>
+              <label>Name <input id="f-name" type="text" /></label>
+              <label>Chat ID (empty = global default) <input id="f-chatid" type="text" placeholder="e.g. 6166097340" /></label>
+              <label class="check"><input id="f-enabled" type="checkbox" /> Enabled</label>
+              <label>System prompt / tone rules
+                <textarea id="f-system" rows="10" required></textarea>
+              </label>
+              <fieldset>
+                <legend>Few-shot examples</legend>
+                <div id="few-shot-rows"></div>
+                <button type="button" id="add-example" class="btn small">+ Add example</button>
+              </fieldset>
+              <label>Corrections block (optional)
+                <textarea id="f-corrections" rows="4" placeholder="original -> corrected, one per line"></textarea>
+              </label>
+              <div class="actions">
+                <button type="submit" class="btn primary">Save</button>
+                <button type="button" id="delete-prompt" class="btn danger" hidden>Delete</button>
+              </div>
+              <p id="prompt-error" class="error" hidden></p>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <section id="chats-view" hidden>
+        <div class="card">
+          <h3>Auto-reply allow-list</h3>
+          <p class="muted">
+            Only chats with auto-reply enabled generate drafts. Unknown chats are ignored.
+          </p>
+          <form id="chat-add-form" class="row">
+            <input id="chat-add-id" type="text" placeholder="chat id (e.g. 6166097340)" required />
+            <input id="chat-add-user" type="text" placeholder="username (optional)" />
+            <button type="submit" class="btn">Add chat</button>
+          </form>
+          <ul id="chat-list" class="list"></ul>
+        </div>
+      </section>
+    </section>
+
+    <script src="/admin.js"></script>
+  </body>
+</html>

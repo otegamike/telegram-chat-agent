@@ -1,0 +1,284 @@
+:root {
+  --bg: #0f1115;
+  --bg-raised: #181b21;
+  --bg-input: #101218;
+  --border: #2a2f3a;
+  --text: #e6e8eb;
+  --muted: #8b93a1;
+  --accent: #3d7aed;
+  --accent-hover: #2f66d2;
+  --danger: #e05252;
+  --danger-hover: #c23c3c;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-raised);
+}
+
+header h1 {
+  font-size: 1.1rem;
+  margin: 0 auto 0 0;
+}
+
+#who {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+main,
+section#login-view,
+section#app-view {
+  padding: 1.25rem;
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.card {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1.25rem;
+  margin-bottom: 1.25rem;
+}
+
+.card h2,
+.card h3 {
+  margin-top: 0;
+}
+
+.grow {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 1.25rem;
+  align-items: start;
+}
+
+@media (max-width: 720px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+label {
+  display: block;
+  margin-bottom: 0.75rem;
+  font-size: 0.9rem;
+}
+
+label.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  white-space: nowrap;
+}
+
+input[type="text"],
+input[type="password"],
+textarea {
+  width: 100%;
+  background: var(--bg-input);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.65rem;
+  font: inherit;
+  margin-top: 0.25rem;
+}
+
+input:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+textarea {
+  resize: vertical;
+}
+
+input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 1rem;
+  height: 1rem;
+}
+
+fieldset {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem;
+  margin: 0 0 0.75rem;
+}
+
+legend {
+  padding: 0 0.4rem;
+  font-size: 0.9rem;
+}
+
+.btn {
+  background: var(--bg-input);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.9rem;
+  font: inherit;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.btn:hover {
+  border-color: var(--muted);
+}
+
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.btn.primary:hover {
+  background: var(--accent-hover);
+}
+
+.btn.danger {
+  background: transparent;
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.btn.danger:hover {
+  background: var(--danger);
+  color: #fff;
+}
+
+.btn.small {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.85rem;
+}
+
+.btn.tab {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  padding: 0.5rem 0.9rem;
+  color: var(--muted);
+}
+
+.btn.tab.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 1.25rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.list {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+}
+
+.list-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.6rem 0.75rem;
+  margin-bottom: 0.5rem;
+  cursor: pointer;
+}
+
+.list-item:hover {
+  border-color: var(--muted);
+}
+
+.list-item.active {
+  border-color: var(--accent);
+}
+
+.list-item .li-title {
+  display: block;
+  font-weight: 600;
+}
+
+.list-item .li-meta {
+  display: block;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.list-item.muted {
+  cursor: default;
+  color: var(--muted);
+}
+
+.row {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.row input[type="text"] {
+  flex: 1 1 160px;
+  margin-top: 0;
+}
+
+.few-shot-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.few-shot-row input {
+  margin-top: 0;
+}
+
+.actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.error {
+  color: var(--danger);
+  font-size: 0.9rem;
+}
+
+.muted {
+  color: var(--muted);
+}
