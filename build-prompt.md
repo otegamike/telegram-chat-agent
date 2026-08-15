@@ -155,7 +155,7 @@ Termux terminal.
 the printed draft, confirms it's coherent and roughly follows the
 placeholder tone rules, and confirms a `MasterPrompt` doc appears in Atlas.
 
-## Phase 5 — Admin web frontend
+## Phase 5 — Admin web frontend (DONE)
 - `express` + `bcryptjs` (pure JS — must not break Termux ARM), vanilla
   HTML/CSS/JS only, no frontend build tooling
 - `AdminUser` stored in Mongo (username + hashed password, never committed)
@@ -166,31 +166,55 @@ placeholder tone rules, and confirms a `MasterPrompt` doc appears in Atlas.
     and few-shot examples, assign a prompt to a specific `chatId` (or leave
     it as the global default), enable/disable
   - List `ChatConfig`s and toggle `autoReplyEnabled` per chat
-- The whole thing is one JSON API + one static page; keep it minimal
+- **Chat directory sync (added):** a `TelegramChat` collection holds the
+  user's 1:1 chats. It is populated by `npm run sync-chats` and
+  automatically on service startup via `src/services/telegram-chats.ts`
+  (`syncChatDirectory` — `getDialogs` filtered to private real users, no
+  bots). The admin **never connects to the Telegram session**: the Chats
+  tab's picker reads `GET /api/chats` straight from Mongo.
+- **Chat detail page (added):** clicking a chat in the allow-list opens
+  `/chat.html?chatId=...` (`public/chat.html` + `public/chat.js`, served
+  with the same cookie session). It shows the chat header + auto-reply
+  toggle, a per-chat `MasterPrompt` editor (with a "create chat-specific
+  prompt from default" button when the chat only inherits the global
+  default), a conversation history UI (`Conversation.messages` bubble
+  layout, themed rows / my rows, `summary` banner, and a "No messages yet"
+  empty state), and the corrections list (`Draft` rows with status badges;
+  edited drafts show incoming → draft → final).
+- The whole thing is one JSON API + static pages; keep it minimal
 
-**Test gate:** Mike logs in on the laptop, creates/edits a prompt, saves,
-re-runs `npm run test:draft`, and sees the new voice; toggles a chat's
-auto-reply and confirms the change in MongoDB.
+**Test gate (DONE):** Mike logs in on the laptop, creates/edits a prompt,
+saves, re-runs `npm run test:draft`, and sees the new voice; toggles a
+chat's auto-reply and confirms the change in MongoDB; runs `npm run
+sync-chats`, picks a chat from the dropdown, opens its detail page, and
+confirms the per-chat prompt can be created/saved and the history shows the
+empty state.
 
 ---
 
-## Phase 6 — Wire listener → draft → review notification
-- On an incoming private DM: load-or-create `Conversation`, append to the
-  rolling window, and look up the sender's `ChatConfig`
-- **Allow-list gate:** the list defaults OFF. If the sender's
-  `autoReplyEnabled` is false (or no `ChatConfig` exists), ignore the
-  message entirely — no prompt, no draft, no notification
-- If enabled, resolve the chat's `MasterPrompt` via `resolveMasterPrompt`,
-  call `generateDraft`, and save a `Draft` doc with status `pending`
+## Phase 6 — Wire listener → draft → review notification (CURRENT — in progress)
+- On an incoming private DM: **allow-list gate first** — look up the
+  sender's `ChatConfig`. If `autoReplyEnabled` is false (or no `ChatConfig`
+  exists), ignore the message entirely: no history, no prompt, no draft, no
+  notification
+- If enabled, load-or-create `Conversation`, append the message
+  (`role: 'them'`) to the rolling window, and save
+- Resolve the chat's `MasterPrompt` via `resolveMasterPrompt`, call
+  `generateDraft` with the recent context, and save a `Draft` doc with
+  status `pending`
 - Send the draft to the review bot chat with inline keyboard buttons:
   ✅ Send  ✏️ Edit  ❌ Skip
 - No button handling yet — just confirm the notification arrives correctly
+- Pipeline lives in `src/services/pipeline.ts` (`processIncomingMessage`),
+  invoked from `src/bots/message-listener.ts`; notifications are sent via a
+  shared `notifyDraft` helper exported from `src/bots/review-bot.ts`
 
 **Test gate:** Mike has a friend DM him. Nothing happens until he enables
 that friend's `ChatConfig` in the admin UI (Phase 5); once enabled, within
 a few seconds he gets a push notification from the review bot showing the
 drafted reply with the three buttons visible (even though tapping them
-doesn't do anything yet).
+doesn't do anything yet). Chat off the allow-list → ignored entirely (no
+`Conversation`/`Draft` created).
 
 ---
 

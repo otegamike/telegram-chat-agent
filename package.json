@@ -9,6 +9,7 @@
     "test:db": "npm run build && node dist/scripts/test-db.js",
     "test:draft": "npm run build && node dist/scripts/test-draft.js",
     "login": "npm run build && node dist/scripts/login-telegram.js",
+    "sync-chats": "npm run build && node dist/scripts/sync-chats.js",
     "create-admin": "npm run build && node dist/scripts/create-admin.js",
     "admin": "npm run build && node dist/admin/index.js",
     "start": "npm run build && node dist/index.js"

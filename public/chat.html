@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Telegram Chat Agent — Chat</title>
+    <link rel="stylesheet" href="/admin.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Telegram Chat Agent</h1>
+      <a id="back-link" href="/admin" class="btn">← Back</a>
+      <span id="who"></span>
+      <button id="logout" class="btn" hidden>Log out</button>
+    </header>
+
+    <section id="login-view" hidden>
+      <form id="login-form" class="card">
+        <h2>Log in</h2>
+        <label>Username <input id="login-username" type="text" autocomplete="username" required /></label>
+        <label>Password <input id="login-password" type="password" autocomplete="current-password" required /></label>
+        <p id="login-error" class="error" hidden></p>
+        <button type="submit" class="btn primary">Log in</button>
+      </form>
+    </section>
+
+    <section id="chat-view" hidden>
+      <p id="chat-load-error" class="error" hidden></p>
+
+      <div class="card">
+        <h2 id="chat-title">Chat</h2>
+        <p id="chat-meta" class="muted"></p>
+        <label class="check">
+          <input id="auto-reply" type="checkbox" /> Auto-reply enabled
+        </label>
+      </div>
+
+      <div class="card">
+        <h3>Prompt</h3>
+        <p id="prompt-fallback" class="muted"></p>
+        <form id="prompt-form" hidden>
+          <label>Key (read-only) <input id="f-key" type="text" disabled /></label>
+          <label>Name <input id="f-name" type="text" /></label>
+          <label class="check"><input id="f-enabled" type="checkbox" /> Enabled</label>
+          <label>System prompt / tone rules
+            <textarea id="f-system" rows="10" required></textarea>
+          </label>
+          <fieldset>
+            <legend>Few-shot examples</legend>
+            <div id="few-shot-rows"></div>
+            <button type="button" id="add-example" class="btn small">+ Add example</button>
+          </fieldset>
+          <label>Corrections block (optional)
+            <textarea id="f-corrections" rows="4" placeholder="original -> corrected, one per line"></textarea>
+          </label>
+          <div class="actions">
+            <button type="submit" class="btn primary">Save</button>
+            <button type="button" id="create-chat-prompt" class="btn" hidden>Create chat-specific prompt</button>
+          </div>
+          <p id="prompt-error" class="error" hidden></p>
+        </form>
+      </div>
+
+      <div class="card">
+        <h3>History</h3>
+        <p id="history-summary" class="summary-banner" hidden></p>
+        <div id="history" class="history"></div>
+      </div>
+
+      <div class="card">
+        <h3>Corrections</h3>
+        <ul id="drafts" class="list"></ul>
+      </div>
+    </section>
+
+    <script src="/chat.js"></script>
+  </body>
+</html>

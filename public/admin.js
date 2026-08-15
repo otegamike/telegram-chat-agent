@@ -295,6 +295,51 @@ async function loadChats() {
     state.chats = [];
   }
   renderChatList();
+  loadChatDirectory();
+}
+
+let chatDirectory = [];
+let dirLastSyncAt = null;
+
+async function loadChatDirectory() {
+  const picker = $('chat-picker');
+  if (!picker) return;
+  const syncInfo = $('chat-sync-info');
+  try {
+    const body = await api('/api/chats');
+    chatDirectory = body.chats || [];
+    dirLastSyncAt = body.lastSyncAt || null;
+  } catch (err) {
+    chatDirectory = [];
+    syncInfo.textContent = `Could not load chat list: ${err.message}`;
+    return;
+  }
+
+  const selected = picker.value;
+  picker.textContent = '';
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = 'Select a chat…';
+  picker.appendChild(placeholder);
+  for (const c of chatDirectory) {
+    const opt = document.createElement('option');
+    opt.value = c.chatId;
+    opt.textContent = c.displayName;
+    picker.appendChild(opt);
+  }
+
+  if (chatDirectory.length === 0) {
+    syncInfo.textContent = 'No chats synced yet — run `npm start` (or `npm run sync-chats`) to populate the chat list.';
+  } else {
+    const when = dirLastSyncAt
+      ? `Last synced ${new Date(dirLastSyncAt).toLocaleString()}`
+      : 'Last synced recently';
+    syncInfo.textContent = `${when} — updated whenever the service runs.`;
+  }
+
+  if (selected) {
+    picker.value = selected;
+  }
 }
 
 function renderChatList() {
@@ -309,6 +354,15 @@ function renderChatList() {
   for (const c of state.chats) {
     const li = document.createElement('li');
     li.className = 'list-item';
+
+    const openBtn = document.createElement('button');
+    openBtn.type = 'button';
+    openBtn.className = 'btn small';
+    openBtn.textContent = 'Open';
+    openBtn.addEventListener('click', () => {
+      window.location.href = `/chat.html?chatId=${encodeURIComponent(c.chatId)}`;
+    });
+
     const chatInfo = document.createElement('span');
     chatInfo.className = 'grow';
     chatInfo.textContent = `${c.chatId}${c.peerUsername ? ' (@' + c.peerUsername + ')' : ''}`;
@@ -328,6 +382,7 @@ function renderChatList() {
     removeBtn.textContent = 'Remove';
     removeBtn.addEventListener('click', () => removeChat(c.id, c.chatId, li));
 
+    li.appendChild(openBtn);
     li.appendChild(chatInfo);
     li.appendChild(toggle);
     li.appendChild(removeBtn);
@@ -349,6 +404,15 @@ async function saveChat(chat, patch, cb) {
     cb.checked = previous;
     window.alert(`Failed to update chat: ${err.message}`);
   }
+}
+
+function onChatPicked() {
+  const chatId = $('chat-picker').value;
+  if (!chatId) return;
+  const chat = chatDirectory.find((c) => c.chatId === chatId);
+  $('chat-add-id').value = chatId;
+  $('chat-add-user').value = (chat && chat.username) || '';
+  $('chat-add-form').requestSubmit();
 }
 
 async function addChat(evt) {
@@ -426,6 +490,8 @@ function bindEvents() {
   deletePromptBtn.addEventListener('click', deletePrompt);
   $('add-example').addEventListener('click', () => addFewShotRow());
   $('chat-add-form').addEventListener('submit', addChat);
+  $('chat-picker').addEventListener('change', onChatPicked);
+  $('chat-refresh').addEventListener('click', loadChatDirectory);
 }
 
 async function init() {

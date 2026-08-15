@@ -70,6 +70,14 @@
           <p class="muted">
             Only chats with auto-reply enabled generate drafts. Unknown chats are ignored.
           </p>
+          <div class="row">
+            <label for="chat-picker" class="check">Pick from your chats:</label>
+            <select id="chat-picker">
+              <option value="">Select a chat…</option>
+            </select>
+            <button type="button" id="chat-refresh" class="btn small">Reload</button>
+          </div>
+          <p id="chat-sync-info" class="muted"></p>
           <form id="chat-add-form" class="row">
             <input id="chat-add-id" type="text" placeholder="chat id (e.g. 6166097340)" required />
             <input id="chat-add-user" type="text" placeholder="username (optional)" />

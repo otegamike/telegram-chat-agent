@@ -3,6 +3,49 @@ import TelegramBot from 'node-telegram-bot-api';
 
 const STATIC_REPLY = 'Review bot online. Drafted replies will show up here for approval.';
 
+let bot: TelegramBot | null = null;
+let ownerChatId: number | null = null;
+
+export interface DraftNotification {
+  chatId: string;
+  senderName: string;
+  incomingMessage: string;
+  draftText: string;
+  draftId: string;
+}
+
+export function sendDraftNotification(notification: DraftNotification): void {
+  if (!bot || !ownerChatId) {
+    throw new Error('Review bot not started — cannot send draft notification');
+  }
+
+  const text = [
+    `@${notification.senderName} (${notification.chatId})`,
+    '',
+    `Incoming:`,
+    `"${notification.incomingMessage}"`,
+    '',
+    `Draft:`,
+    `"${notification.draftText}"`,
+  ].join('\n');
+
+  bot
+    .sendMessage(ownerChatId, text, {
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: '\u2705 Send', callback_data: `send:${notification.draftId}` },
+            { text: '\u270f\ufe0f Edit', callback_data: `edit:${notification.draftId}` },
+            { text: '\u274c Skip', callback_data: `skip:${notification.draftId}` },
+          ],
+        ],
+      },
+    })
+    .catch((err) => {
+      console.error('[review-bot] failed to send draft notification:', err);
+    });
+}
+
 export function startReviewBot(): void {
   const token = process.env.REVIEW_BOT_TOKEN;
   const ownerChatIdRaw = process.env.REVIEW_BOT_OWNER_CHAT_ID;
@@ -13,9 +56,9 @@ export function startReviewBot(): void {
   if (!ownerChatIdRaw || !/^\d+$/.test(ownerChatIdRaw)) {
     throw new Error('REVIEW_BOT_OWNER_CHAT_ID must be a numeric chat id in .env');
   }
-  const ownerChatId = Number(ownerChatIdRaw);
+  ownerChatId = Number(ownerChatIdRaw);
 
-  const bot = new TelegramBot(token, { polling: true });
+  bot = new TelegramBot(token, { polling: true });
 
   bot.on('message', async (msg) => {
     const senderId = msg.from?.id;
@@ -31,7 +74,7 @@ export function startReviewBot(): void {
 
     if (msg.text?.trim() === '/start') {
       try {
-        await bot.sendMessage(ownerChatId, STATIC_REPLY);
+        await bot!.sendMessage(ownerChatId, STATIC_REPLY);
         console.log('[review-bot] message sent to owner');
       } catch (err) {
         console.error('[review-bot] failed to reply to /start:', err);

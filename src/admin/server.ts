@@ -7,6 +7,10 @@ import { connectDb } from '../services/db';
 import { AdminUserModel } from '../models/AdminUser';
 import { MasterPromptModel, MasterPrompt } from '../models/MasterPrompt';
 import { ChatConfigModel, ChatConfig } from '../models/ChatConfig';
+import { TelegramChatModel } from '../models/TelegramChat';
+import { ConversationModel } from '../models/Conversation';
+import { DraftModel } from '../models/Draft';
+import { ensureDefaultMasterPrompt } from '../services/master-prompt';
 
 const COOKIE_NAME = 'adtoken';
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -298,6 +302,84 @@ export async function startAdminServer(): Promise<void> {
     }
     await prompt.deleteOne();
     res.json({ ok: true });
+  });
+
+  app.get('/api/chats', requireAuth, async (_req, res) => {
+    const chats = await TelegramChatModel.find().sort({ displayName: 1 }).lean().exec();
+    const lastSyncAt = chats.reduce<Date | null>(
+      (max, c) => (c.updatedAt && (!max || c.updatedAt > max) ? c.updatedAt : max),
+      null
+    );
+    res.json({
+      chats: chats.map((c) => ({
+        chatId: c.chatId,
+        username: c.username ?? '',
+        displayName: c.displayName || c.chatId,
+      })),
+      lastSyncAt: lastSyncAt?.toISOString() ?? null,
+    });
+  });
+
+  app.get('/api/chat/:chatId', requireAuth, async (req, res) => {
+    const chatId = String(req.params.chatId).trim();
+    if (!chatId) {
+      res.status(400).json({ error: 'chatId is required' });
+      return;
+    }
+
+    const [dir, config] = await Promise.all([
+      TelegramChatModel.findOne({ chatId }).lean().exec(),
+      ChatConfigModel.findOne({ chatId }).lean().exec(),
+    ]);
+
+    const [conversation, drafts, chatPrompt, defaultPrompt] = await Promise.all([
+      ConversationModel.findOne({ chatId }).lean().exec(),
+      DraftModel.find({ chatId }).sort({ createdAt: -1 }).limit(100).lean().exec(),
+      MasterPromptModel.findOne({ chatId, key: { $ne: 'default' } })
+        .sort({ updatedAt: -1 })
+        .lean()
+        .exec(),
+      ensureDefaultMasterPrompt(),
+    ]);
+
+    res.json({
+      chat: dir
+        ? {
+            chatId: dir.chatId,
+            username: dir.username ?? '',
+            displayName: dir.displayName || dir.chatId,
+          }
+        : null,
+      config: config
+        ? {
+            chatId: config.chatId,
+            peerUsername: config.peerUsername ?? '',
+            autoReplyEnabled: config.autoReplyEnabled,
+          }
+        : null,
+      conversation: conversation
+        ? {
+            messages: (conversation.messages ?? []).map((m) => ({
+              role: m.role,
+              text: m.text,
+              timestamp: m.timestamp,
+            })),
+            summary: conversation.summary ?? '',
+            lastUpdated: conversation.lastUpdated,
+          }
+        : null,
+      drafts: drafts.map((d) => ({
+        id: String(d._id),
+        incomingMessage: d.incomingMessage,
+        draftText: d.draftText,
+        finalText: d.finalText ?? null,
+        status: d.status,
+        wasEdited: d.wasEdited,
+        createdAt: d.createdAt,
+      })),
+      chatPrompt: chatPrompt ? serializePrompt(chatPrompt as never) : null,
+      defaultPrompt: serializePrompt(defaultPrompt.toObject() as never),
+    });
   });
 
   app.get('/api/chat-configs', requireAuth, async (_req, res) => {
