@@ -2,6 +2,8 @@ import { Schema, model, InferSchemaType } from 'mongoose';
 
 export const masterPromptSchema = new Schema({
   key: { type: String, required: true, unique: true, index: true },
+  name: { type: String, required: true, default: 'Master prompt' },
+  chatId: { type: String, default: null },
   systemPrompt: { type: String, required: true },
   fewShotExamples: [
     {
@@ -10,6 +12,8 @@ export const masterPromptSchema = new Schema({
     },
   ],
   correctionsBlock: { type: String, default: null },
+  enabled: { type: Boolean, required: true, default: true },
+  createdAt: { type: Date, required: true, default: Date.now },
   updatedAt: { type: Date, required: true, default: Date.now },
 });
 

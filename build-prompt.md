@@ -23,11 +23,17 @@ phone, via Termux) before the next is built on top of it.
   correctly against real Telegram accounts and the phone's environment,
   not just that it compiles on the laptop.
 - TypeScript, Node.js
-- No Tailwind / no framework CSS — this project has no UI, so this
-  shouldn't come up, but if any admin page is ever added, vanilla CSS only
+- No Tailwind / no framework CSS — the admin web frontend must use vanilla
+  CSS/JS only
 - MongoDB via Mongoose (Atlas free tier) — reachable from both laptop and
   phone, so this is the one piece you can sanity-check yourself on the
   laptop before Mike re-verifies on the phone
+- Anything Mike wants to change at runtime (freely, without committing)
+  lives in MongoDB, never in code: `MasterPrompt` (the AI's voice, editable
+  and assignable per chat), `ChatConfig` (which chats get auto-replied to),
+  and `AdminUser` (the web admin login). Source code only ever contains
+  obviously-fake placeholder seeds for these — never Mike's real prompt
+  text and never credentials — so they never end up on GitHub
 - All secrets in `.env`, never committed — `.gitignore` must include `.env`
   from the very first commit
 - Provide an `.env.example` with every required key name but no real values
@@ -44,7 +50,8 @@ phone, via Termux) before the next is built on top of it.
   `TELEGRAM_SESSION_STRING`, `REVIEW_BOT_TOKEN`, `REVIEW_BOT_OWNER_CHAT_ID`,
   `MONGODB_URI`, `GROQ_API_KEY`
 - Mongoose connection helper (`src/services/db.ts`)
-- `Conversation` and `Draft` models exactly as specified below:
+- `Conversation`, `Draft`, `MasterPrompt`, and `ChatConfig` models exactly
+  as specified below:
 
 ```ts
 // Conversation
@@ -65,6 +72,28 @@ phone, via Termux) before the next is built on top of it.
   status: 'pending' | 'sent' | 'skipped',
   wasEdited: boolean,
   createdAt: Date
+}
+
+// MasterPrompt — the AI's voice; lives in Mongo, never committed
+{
+  key: string,               // stable id, e.g. 'default'
+  name: string,              // label shown in the admin UI
+  chatId: string | null,     // null = global default; set = that chat's prompt
+  systemPrompt: string,      // tone rules
+  fewShotExamples: [{ trigger: string, reply: string }],
+  correctionsBlock: string | null,
+  enabled: boolean,
+  createdAt: Date,
+  updatedAt: Date
+}
+
+// ChatConfig — contact auto-reply filter (allow-list, default OFF)
+{
+  chatId: string,            // a contact's DM chat id (unique)
+  peerUsername: string,
+  autoReplyEnabled: boolean, // default false
+  createdAt: Date,
+  updatedAt: Date
 }
 ```
 
@@ -103,36 +132,69 @@ Termux terminal.
 
 ---
 
-## Phase 4 — Draft generation (standalone, not yet wired to Telegram)
-- Master prompt file (`src/prompts/master-prompt.ts`) with placeholder
-  sections for tone rules and few-shot examples — Mike will fill in real
-  examples later, use 3-4 obviously-fake placeholder examples for now so
-  the phase is testable
-- Groq client wrapper (`src/services/llm.ts`)
-- A function `generateDraft(incomingMessage, conversationContext)` that
-  composes the prompt and returns the model's reply text
-- A test script that calls this function directly with a hardcoded sample
-  message and prints the draft
+## Phase 4 — DB-backed master prompts + ChatConfig + draft generation
+- `src/prompts/master-prompt.ts` holds SEED-ONLY placeholder content: tone
+  rules plus 3-4 obviously-fake few-shot examples. It exists purely to
+  bootstrap the DB — the real prompt lives in MongoDB and Mike edits it in
+  the admin UI (Phase 5), so his actual voice never gets committed
+- Mongo-backed prompt service (`src/services/master-prompt.ts`):
+  `ensureDefaultMasterPrompt()` seeds a global default from the placeholder
+  file if none exists, and `resolveMasterPrompt(chatId)` returns the chat's
+  own enabled prompt if it has one, else the global default
+- Groq client wrapper (`src/services/llm.ts`) exposing
+  `generateDraft(incomingMessage, conversationContext, masterPrompt)`. It
+  composes the system message from the passed-in prompt (tone rules +
+  few-shot examples + `correctionsBlock` when present) and returns the
+  model's reply text. Model = `GROQ_MODEL` env or a current supported
+  default (Groq deprecated its Llama chat models as of 2026)
+- A test script (`src/scripts/test-draft.ts`, run via `npm run test:draft`)
+  that connects Mongo, resolves the default prompt, calls `generateDraft`
+  with a hardcoded sample message, and prints the draft
 
-**Test gate:** Mike runs the script, reads the printed draft, confirms it's
-coherent and roughly follows the placeholder tone rules.
+**Test gate:** Mike sets `GROQ_API_KEY` in `.env`, runs the script, reads
+the printed draft, confirms it's coherent and roughly follows the
+placeholder tone rules, and confirms a `MasterPrompt` doc appears in Atlas.
+
+## Phase 5 — Admin web frontend
+- `express` + `bcryptjs` (pure JS — must not break Termux ARM), vanilla
+  HTML/CSS/JS only, no frontend build tooling
+- `AdminUser` stored in Mongo (username + hashed password, never committed)
+  with an `npm run create-admin` script to set it
+- Login-protected single-page UI at `/admin` (server started by
+  `npm run admin` on `ADMIN_PORT`) that can:
+  - List / create / edit / delete `MasterPrompt`s: edit the systemPrompt
+    and few-shot examples, assign a prompt to a specific `chatId` (or leave
+    it as the global default), enable/disable
+  - List `ChatConfig`s and toggle `autoReplyEnabled` per chat
+- The whole thing is one JSON API + one static page; keep it minimal
+
+**Test gate:** Mike logs in on the laptop, creates/edits a prompt, saves,
+re-runs `npm run test:draft`, and sees the new voice; toggles a chat's
+auto-reply and confirms the change in MongoDB.
 
 ---
 
-## Phase 5 — Wire listener → draft → review notification
-- On incoming message: load-or-create `Conversation`, append to rolling
-  window, call `generateDraft`, save a `Draft` doc with status `pending`
+## Phase 6 — Wire listener → draft → review notification
+- On an incoming private DM: load-or-create `Conversation`, append to the
+  rolling window, and look up the sender's `ChatConfig`
+- **Allow-list gate:** the list defaults OFF. If the sender's
+  `autoReplyEnabled` is false (or no `ChatConfig` exists), ignore the
+  message entirely — no prompt, no draft, no notification
+- If enabled, resolve the chat's `MasterPrompt` via `resolveMasterPrompt`,
+  call `generateDraft`, and save a `Draft` doc with status `pending`
 - Send the draft to the review bot chat with inline keyboard buttons:
   ✅ Send  ✏️ Edit  ❌ Skip
 - No button handling yet — just confirm the notification arrives correctly
 
-**Test gate:** Mike has a friend DM him, and within a few seconds gets a
-push notification from the review bot showing the drafted reply with the
-three buttons visible (even though tapping them doesn't do anything yet).
+**Test gate:** Mike has a friend DM him. Nothing happens until he enables
+that friend's `ChatConfig` in the admin UI (Phase 5); once enabled, within
+a few seconds he gets a push notification from the review bot showing the
+drafted reply with the three buttons visible (even though tapping them
+doesn't do anything yet).
 
 ---
 
-## Phase 6 — Review bot actions + send-back
+## Phase 7 — Review bot actions + send-back
 - Handle `callback_query` for Send / Edit / Skip
 - **Send:** mark `Draft.status = 'sent'`, `finalText = draftText`, send
   `finalText` to the original `chatId` via the GramJS client
@@ -148,7 +210,7 @@ Repeat once tapping Send directly (no edit) to confirm that path too.
 
 ---
 
-## Phase 7 — Rolling memory + summarization
+## Phase 8 — Rolling memory + summarization
 - Cap `messages` array at ~20 entries per conversation
 - When it would exceed the cap, summarize the oldest entries into
   `Conversation.summary` via an LLM call, then trim the array
@@ -160,11 +222,12 @@ populated and makes sense.
 
 ---
 
-## Phase 8 — Voice-correction feedback loop
+## Phase 9 — Voice-correction feedback loop
 - A scheduled job (`node-cron`, run daily or on-demand) that queries the
   most recent `Draft` docs where `wasEdited = true`, and builds a
   "recent corrections" block (original → final, last ~10)
-- Inject that block into the master prompt for future `generateDraft` calls
+- Store that block in `MasterPrompt.correctionsBlock` so it participates in
+  future `generateDraft` calls (surfaced in the admin UI too)
 
 **Test gate:** Mike manually edits a couple of drafts, runs the job, and
 confirms the corrections block updates and that a subsequent draft for a
@@ -172,11 +235,12 @@ similar message shows the influence (e.g. adopts a phrase he corrected to).
 
 ---
 
-## Phase 9 — Hosting hardening on Termux
+## Phase 10 — Hosting hardening on Termux
 - Document (in README) the wake-lock, battery-optimization-exemption, and
   Termux:Boot autostart steps already established
 - Wrap the main process start in `tmux` so it survives the Termux app being
-  backgrounded
+  backgrounded; run the admin server (`npm run admin`) the same way so the
+  UI stays reachable from the LAN
 - Add a `README.md` section with an explicit note on the Telegram ToS risk
   of the GramJS session, and Mike's usage guidelines (never message first,
   keep volume low, always review before send)
@@ -185,10 +249,8 @@ similar message shows the influence (e.g. adopts a phrase he corrected to).
 Termux:Boot without him opening the app manually, and that a test message
 still triggers the full pipeline afterward.
 
----
-
-## After Phase 9
+## After Phase 10
 Stop and summarize what was built, flag anything that still needs real
-content from Mike (the actual few-shot examples of his texting voice are
-the single highest-leverage remaining task), and ask what he wants to
-tackle next.
+content from Mike (his actual few-shot examples of his texting voice are
+the single highest-leverage remaining task — enterable in the admin UI),
+and ask what he wants to tackle next.
