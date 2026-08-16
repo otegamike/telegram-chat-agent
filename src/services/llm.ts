@@ -48,12 +48,12 @@ export function buildSystemMessage(prompt: DraftPrompt): string {
     .join('\n');
 
   const correctionsBlock = prompt.correctionsBlock
-    ? `\n\nRecent corrections Mike made in the review bot (original -> final). Prefer the corrected phrasing:\n${prompt.correctionsBlock}`
+    ? `\n\nRecent corrections you made in the review bot (original -> final). Prefer the corrected phrasing:\n${prompt.correctionsBlock}`
     : '';
 
   return `${prompt.systemPrompt}
 
-Few-shot examples (incoming -> Mike's reply). Imitate the style but never copy these word-for-word:
+Few-shot examples (incoming -> your reply). Imitate the style but never copy these word-for-word:
 ${examplesBlock}${correctionsBlock}`;
 }
 
@@ -62,7 +62,7 @@ export function buildUserMessage(incomingMessage: string, conversationContext: s
   return `Conversation context (recent history):
 ${contextBlock}
 
-Draft Mike's reply to this incoming message:
+Draft a reply to this incoming message:
 ${incomingMessage}`;
 }
 

@@ -13,7 +13,7 @@ async function main(): Promise<void> {
         messages: [
           {
             role: 'them',
-            text: 'Hey Mike, is the project ready?',
+            text: 'Hey, is the project ready?',
             timestamp: new Date(),
           },
           {

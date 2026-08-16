@@ -3,7 +3,7 @@ import { connectDb, disconnectDb } from '../services/db';
 import { resolveMasterPrompt } from '../services/master-prompt';
 import { generateDraft } from '../services/llm';
 
-const SAMPLE_INCOMING = 'hey mike are u free for a football match saturday?';
+const SAMPLE_INCOMING = 'hey are u free for a football match saturday?';
 const SAMPLE_CONTEXT = 'them: whats up?\nme: not much, just working\n';
 
 async function main(): Promise<void> {

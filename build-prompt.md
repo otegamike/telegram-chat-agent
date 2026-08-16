@@ -1,23 +1,23 @@
 # Build Prompt: Telegram AI Auto-Responder
 
 You are building a Node.js/TypeScript service that reads incoming Telegram
-DMs on Mike's personal account, drafts replies in his voice via an LLM,
+DMs on the user's personal account, drafts replies in the user's voice via an LLM,
 sends drafts to a private review bot for approval/editing, and sends the
-final text from Mike's real account.
+final text from the user's real account.
 
 **Work through the phases below IN ORDER. After finishing each phase, stop
-and tell Mike exactly what to test and how, before moving to the next
+and tell the user exactly what to test and how, before moving to the next
 phase.** Do not skip ahead or combine phases, even if the next phase looks
 quick — each one needs to be verified working on real hardware (his Android
 phone, via Termux) before the next is built on top of it.
 
 ## Global conventions
-- **You (the agent) write and run all code on Mike's laptop.** Termux only
-  exists on Mike's Android phone — you don't have access to it and should
+- **You (the agent) write and run all code on the user's laptop.** Termux only
+  exists on the user's Android phone — you don't have access to it and should
   never assume you're running inside it. Any command you run yourself
   (npm install, build, lint, etc.) happens in the laptop environment.
 - **The phone is for testing real Telegram behavior and eventual hosting,
-  not for development.** After each phase, Mike commits and pushes from
+  not for development.** After each phase, the user commits and pushes from
   the laptop, then pulls on the phone inside Termux and runs the test gate
   there — because the point of each gate is confirming the code behaves
   correctly against real Telegram accounts and the phone's environment,
@@ -27,17 +27,17 @@ phone, via Termux) before the next is built on top of it.
   CSS/JS only
 - MongoDB via Mongoose (Atlas free tier) — reachable from both laptop and
   phone, so this is the one piece you can sanity-check yourself on the
-  laptop before Mike re-verifies on the phone
-- Anything Mike wants to change at runtime (freely, without committing)
+  laptop before the user re-verifies on the phone
+- Anything the user wants to change at runtime (freely, without committing)
   lives in MongoDB, never in code: `MasterPrompt` (the AI's voice, editable
   and assignable per chat), `ChatConfig` (which chats get auto-replied to),
   and `AdminUser` (the web admin login). Source code only ever contains
-  obviously-fake placeholder seeds for these — never Mike's real prompt
+  obviously-fake placeholder seeds for these — never the user's real prompt
   text and never credentials — so they never end up on GitHub
 - All secrets in `.env`, never committed — `.gitignore` must include `.env`
   from the very first commit
 - Provide an `.env.example` with every required key name but no real values
-- At the end of each phase: commit, push, and tell Mike explicitly to
+- At the end of each phase: commit, push, and tell the user explicitly to
   `git pull` on the phone and run the test gate there before you continue
 
 ---
@@ -100,7 +100,7 @@ phone, via Termux) before the next is built on top of it.
 - A tiny script (`src/scripts/test-db.ts`) that connects, inserts one test
   `Conversation` doc, reads it back, prints it, and exits.
 
-**Test gate:** Mike pulls to his phone, runs the test script inside Termux
+**Test gate:** the user pulls to their phone, runs the test script inside Termux
 against his real Atlas URI, and confirms a document appears in Atlas's web
 dashboard.
 
@@ -112,7 +112,7 @@ dashboard.
 - Bot ignores every message except from `REVIEW_BOT_OWNER_CHAT_ID`
 - Responds to `/start` with a static confirmation message
 
-**Test gate:** Mike messages his own bot from his phone and gets the
+**Test gate:** the user messages their own bot from their phone and gets the
 confirmation. He also messages it from a second account (or asks a friend
 to) and confirms it's silently ignored.
 
@@ -120,13 +120,13 @@ to) and confirms it's silently ignored.
 
 ## Phase 3 — GramJS auth + read-only listener
 - One-time interactive login script producing `TELEGRAM_SESSION_STRING`
-  (run once by Mike, value saved to `.env`, never committed)
+  (run once by the user, value saved to `.env`, never committed)
 - Listener using that session, subscribed to `NewMessage` events, filtered
   to private one-on-one chats only (ignore groups/channels/bots)
 - For now, just `console.log` the chat ID, sender, and message text —
   no AI, no database writes yet
 
-**Test gate:** Mike has a friend (or a second account he controls) send a
+**Test gate:** the user has a friend (or a second account they control) send a
 test DM to his real account, and confirms it's logged correctly in the
 Termux terminal.
 
@@ -135,7 +135,7 @@ Termux terminal.
 ## Phase 4 — DB-backed master prompts + ChatConfig + draft generation
 - `src/prompts/master-prompt.ts` holds SEED-ONLY placeholder content: tone
   rules plus 3-4 obviously-fake few-shot examples. It exists purely to
-  bootstrap the DB — the real prompt lives in MongoDB and Mike edits it in
+  bootstrap the DB — the real prompt lives in MongoDB and the user edits it in
   the admin UI (Phase 5), so his actual voice never gets committed
 - Mongo-backed prompt service (`src/services/master-prompt.ts`):
   `ensureDefaultMasterPrompt()` seeds a global default from the placeholder
@@ -151,7 +151,7 @@ Termux terminal.
   that connects Mongo, resolves the default prompt, calls `generateDraft`
   with a hardcoded sample message, and prints the draft
 
-**Test gate:** Mike sets `GROQ_API_KEY` in `.env`, runs the script, reads
+**Test gate:** the user sets `GROQ_API_KEY` in `.env`, runs the script, reads
 the printed draft, confirms it's coherent and roughly follows the
 placeholder tone rules, and confirms a `MasterPrompt` doc appears in Atlas.
 
@@ -183,7 +183,7 @@ placeholder tone rules, and confirms a `MasterPrompt` doc appears in Atlas.
   edited drafts show incoming → draft → final).
 - The whole thing is one JSON API + static pages; keep it minimal
 
-**Test gate (DONE):** Mike logs in on the laptop, creates/edits a prompt,
+**Test gate (DONE):** the user logs in on the laptop, creates/edits a prompt,
 saves, re-runs `npm run test:draft`, and sees the new voice; toggles a
 chat's auto-reply and confirms the change in MongoDB; runs `npm run
 sync-chats`, picks a chat from the dropdown, opens its detail page, and
@@ -208,7 +208,7 @@ empty state.
   `src/bots/message-listener.ts`; notifications are sent via a shared
   `sendDraftNotification` helper exported from `src/bots/review-bot.ts`
 
-**Test gate (DONE):** Mike has a friend DM him. Nothing happens until he
+**Test gate (DONE):** the user has a friend DM them. Nothing happens until they
 enables that friend's `ChatConfig` in the admin UI (Phase 5); once enabled,
 within a few seconds he gets a push notification from the review bot
 showing the drafted reply with the three buttons visible. Chat off the
@@ -235,7 +235,7 @@ allow-list → ignored entirely (no `Conversation`/`Draft` created).
   to `[Skipped] …`, then draft the queued message.
 - **Edit**: one edit-awaiting state at a time (global) — a second Edit tap
   is refused until the first resolves. Tap ✏️ → stop that chat's timer,
-  move to `editing`; Mike's **next message to the bot** is the replacement
+  move to `editing`; the user's **next message to the bot** is the replacement
   text for that draft (`wasEdited = true`, `finalText`, send via GramJS,
   `role: 'me'` appended, notification edited to `[Edited & sent] …`).
   Bot messages in non-edit states are ignored.
@@ -258,13 +258,13 @@ allow-list → ignored entirely (no `Conversation`/`Draft` created).
   `appendSentMessage`, and `draftReply(info)` → `DraftedReply
   { draftId, draftText, notificationMessageId }`.
 
-**Test gate (DONE — laptop-verified; phone re-check deferred by Mike):**
-friend sends a message → notification → tap Edit → Mike sends a rewritten
+**Test gate (DONE — laptop-verified; phone re-check deferred by the user):**
+friend sends a message → notification → tap Edit → the user sends a rewritten
 reply to the bot → friend receives the edited text from his real account.
-Repeat with Send (no edit). Then: friend sends a message and Mike does
+Repeat with Send (no edit). Then: friend sends a message and the user does
 nothing → the draft auto-sends after the configured delay (edit the delay
 down to ~30s in the admin Settings tab first). Finally, friend fires 3
-messages in a row → exactly one notification; after Mike resolves it, the
+messages in a row → exactly one notification; after the user resolves it, the
 latest message gets drafted and sent.
 
 ---
@@ -328,7 +328,7 @@ message about one subject drafts with that subject's topic selected.
 - Store that block in `MasterPrompt.correctionsBlock` so it participates in
   future `generateDraft` calls (surfaced in the admin UI too)
 
-**Test gate:** Mike manually edits a couple of drafts, runs the job, and
+**Test gate:** the user manually edits a couple of drafts, runs the job, and
 confirms the corrections block updates and that a subsequent draft for a
 similar message shows the influence (e.g. adopts a phrase he corrected to).
 
@@ -359,7 +359,7 @@ similar message shows the influence (e.g. adopts a phrase he corrected to).
     `client.getDialogs({ limit: 200 })` pass builds the read boundary.
   - Per chat `client.getMessages(chatId, { limit: CATCHUP_MESSAGE_LIMIT })`,
     filter `!m.out` + has text + `m.id > max(watermark, readInboxMaxId)`,
-    sort ascending, `handleIncoming` each. **Unread-only** — anything Mike
+    sort ascending, `handleIncoming` each. **Unread-only** — anything the user
     read in-app while down is intentionally skipped.
   - **First run starts fresh:** when a chat has no watermark yet, snapshot
     `topMessage` as the starting line and record it — no backfill of
@@ -391,15 +391,15 @@ drafted again (watermark).
   backgrounded; run the admin server (`npm run admin`) the same way so the
   UI stays reachable from the LAN
 - Add a `README.md` section with an explicit note on the Telegram ToS risk
-  of the GramJS session, and Mike's usage guidelines (never message first,
+  of the GramJS session, and the user's usage guidelines (never message first,
   keep volume low, always review before send)
 
-**Test gate:** Mike reboots his phone, confirms the service auto-starts via
+**Test gate:** the user reboots their phone, confirms the service auto-starts via
 Termux:Boot without him opening the app manually, and that a test message
 still triggers the full pipeline afterward.
 
 ## After Phase 10
 Stop and summarize what was built, flag anything that still needs real
-content from Mike (his actual few-shot examples of his texting voice are
+content from the user (their actual few-shot examples of their texting voice are
 the single highest-leverage remaining task — enterable in the admin UI),
 and ask what he wants to tackle next.
