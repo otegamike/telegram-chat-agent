@@ -1,11 +1,16 @@
 import { DraftModel } from '../models/Draft';
 import { ChatConfigModel } from '../models/ChatConfig';
-import { setReviewHandlers, editDraftNotification, ReviewAction } from '../bots/review-bot';
+import { setReviewHandlers, editDraftNotification, sendEditPrompt, ReviewAction } from '../bots/review-bot';
 import { appendIncomingMessage, appendSentMessage, draftReply, IncomingMessageInfo } from './pipeline';
 import { getSettings } from './settings';
 import { sendAsUser, markChatAsRead } from './telegram-sender';
 
 type FlowStatus = 'idle' | 'drafting' | 'awaiting' | 'editing';
+
+const EDIT_TIMEOUT_MS =
+  Number.isFinite(Number(process.env.EDIT_TIMEOUT_MS)) && Number(process.env.EDIT_TIMEOUT_MS) > 0
+    ? Number(process.env.EDIT_TIMEOUT_MS)
+    : 180000;
 
 interface ChatFlow {
   chatId: string;
@@ -14,6 +19,7 @@ interface ChatFlow {
   pendingDraftId: string | null;
   pendingNotificationMessageId: number | null;
   timer: NodeJS.Timeout | null;
+  editTimer: NodeJS.Timeout | null;
   queuedLatest: { text: string; timestamp: Date } | null;
 }
 
@@ -31,6 +37,7 @@ function getFlow(chatId: string, peerUsername: string): ChatFlow {
       pendingDraftId: null,
       pendingNotificationMessageId: null,
       timer: null,
+      editTimer: null,
       queuedLatest: null,
     };
     flows.set(chatId, flow);
@@ -51,6 +58,24 @@ function clearTimer(flow: ChatFlow): void {
   if (flow.timer) {
     clearTimeout(flow.timer);
     flow.timer = null;
+  }
+}
+
+function clearEditTimer(flow: ChatFlow): void {
+  if (flow.editTimer) {
+    clearTimeout(flow.editTimer);
+    flow.editTimer = null;
+  }
+}
+
+function isEditingThisChat(flow: ChatFlow): boolean {
+  return flow.status === 'editing' && editingChatId === flow.chatId;
+}
+
+function releaseEditing(flow: ChatFlow): void {
+  clearEditTimer(flow);
+  if (editingChatId === flow.chatId) {
+    editingChatId = null;
   }
 }
 
@@ -111,6 +136,15 @@ async function draftNext(flow: ChatFlow): Promise<void> {
   }
 }
 
+async function recycleFlow(flow: ChatFlow): Promise<void> {
+  releaseEditing(flow);
+  clearTimer(flow);
+  flow.status = 'idle';
+  flow.pendingDraftId = null;
+  flow.pendingNotificationMessageId = null;
+  await draftNext(flow);
+}
+
 async function completeSend(
   flow: ChatFlow,
   draftId: string,
@@ -119,6 +153,10 @@ async function completeSend(
 ): Promise<void> {
   const draft = await DraftModel.findById(draftId).exec();
   if (!draft || draft.status !== 'pending') {
+    console.log(`[review-manager] chat=${flow.chatId} draft ${draftId} not pending — ${source} aborted`);
+    if (isEditingThisChat(flow) || flow.pendingDraftId === draftId) {
+      await recycleFlow(flow);
+    }
     return;
   }
   const finalText = editedText ?? draft.draftText;
@@ -137,6 +175,7 @@ async function completeSend(
   await draft.save();
   await appendSentMessage(flow.chatId, finalText);
 
+  releaseEditing(flow);
   clearTimer(flow);
   if (flow.pendingNotificationMessageId !== null) {
     const label = source === 'edit' ? 'Edited & sent' : source === 'auto' ? 'Auto-sent' : 'Sent';
@@ -149,16 +188,65 @@ async function completeSend(
 async function completeSkip(flow: ChatFlow, draftId: string): Promise<void> {
   const draft = await DraftModel.findById(draftId).exec();
   if (!draft || draft.status !== 'pending') {
+    console.log(`[review-manager] chat=${flow.chatId} draft ${draftId} not pending — skip aborted`);
+    if (isEditingThisChat(flow) || flow.pendingDraftId === draftId) {
+      await recycleFlow(flow);
+    }
     return;
   }
   draft.status = 'skipped';
   await draft.save();
+  releaseEditing(flow);
   clearTimer(flow);
   if (flow.pendingNotificationMessageId !== null) {
     await editDraftNotification(flow.pendingNotificationMessageId, `[Skipped] ${draft.draftText}`);
   }
   console.log(`[review-manager] chat=${flow.chatId} draft ${draftId} skipped`);
   await draftNext(flow);
+}
+
+async function enterEditing(flow: ChatFlow, draftId: string): Promise<void> {
+  const draft = await DraftModel.findById(draftId).exec();
+  if (!draft || draft.status !== 'pending') {
+    console.log(`[review-manager] chat=${flow.chatId} edit aborted — draft ${draftId} not pending`);
+    await recycleFlow(flow);
+    return;
+  }
+  clearTimer(flow);
+  flow.status = 'editing';
+  editingChatId = flow.chatId;
+  flow.pendingDraftId = draftId;
+  if (flow.pendingNotificationMessageId !== null) {
+    await editDraftNotification(
+      flow.pendingNotificationMessageId,
+      `[Editing] Auto-send paused. Send your corrected text (or /skip to move on).`
+    );
+  }
+  await sendEditPrompt(
+    `Editing draft for chat @${flow.peerUsername || flow.chatId}:\n\n"${draft.draftText}"\n\nReply with your corrected text, or send /skip to move on.`,
+    flow.pendingNotificationMessageId
+  );
+  console.log(`[review-manager] chat=${flow.chatId} editing draft ${draftId} — awaiting corrected text`);
+  clearEditTimer(flow);
+  flow.editTimer = setTimeout(() => {
+    void editTimedOut(flow);
+  }, EDIT_TIMEOUT_MS);
+}
+
+async function editTimedOut(flow: ChatFlow): Promise<void> {
+  flow.editTimer = null;
+  if (flow.status !== 'editing') {
+    return;
+  }
+  console.log(
+    `[review-manager] chat=${flow.chatId} edit timed out after ${EDIT_TIMEOUT_MS}ms — skipping pending draft`
+  );
+  const draftId = flow.pendingDraftId;
+  if (draftId) {
+    await completeSkip(flow, draftId);
+  } else {
+    await recycleFlow(flow);
+  }
 }
 
 async function handleCallback(action: ReviewAction, draftId: string): Promise<void> {
@@ -170,12 +258,16 @@ async function handleCallback(action: ReviewAction, draftId: string): Promise<vo
 
   if (action === 'edit') {
     if (editingChatId !== null) {
-      console.log(`[review-manager] edit refused — already editing in chat ${editingChatId}`);
+      if (editingChatId === flow.chatId) {
+        console.log(`[review-manager] chat=${flow.chatId} edit clicked again — already editing`);
+      } else {
+        console.log(
+          `[review-manager] edit refused for chat=${flow.chatId} — already editing in chat ${editingChatId}`
+        );
+      }
       return;
     }
-    clearTimer(flow);
-    flow.status = 'editing';
-    editingChatId = flow.chatId;
+    await enterEditing(flow, draftId);
     return;
   }
 
@@ -191,11 +283,20 @@ async function handleOwnerText(text: string): Promise<void> {
     return;
   }
   const flow = flows.get(editingChatId);
-  editingChatId = null;
   if (!flow || flow.status !== 'editing' || !flow.pendingDraftId) {
+    editingChatId = null;
     return;
   }
-  await completeSend(flow, flow.pendingDraftId, text, 'edit');
+
+  if (text.trim().toLowerCase() === '/skip') {
+    console.log(`[review-manager] chat=${flow.chatId} owner requested skip while editing`);
+    const draftId = flow.pendingDraftId;
+    await completeSkip(flow, draftId);
+    return;
+  }
+
+  const draftId = flow.pendingDraftId;
+  await completeSend(flow, draftId, text, 'edit');
 }
 
 export async function handleIncoming(info: IncomingMessageInfo): Promise<void> {

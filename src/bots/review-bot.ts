@@ -76,6 +76,23 @@ export async function editDraftNotification(
   }
 }
 
+export async function sendEditPrompt(
+  text: string,
+  replyToMessageId: number | null
+): Promise<void> {
+  if (!bot || !ownerChatId) {
+    return;
+  }
+  try {
+    await bot.sendMessage(ownerChatId, text, {
+      ...(replyToMessageId !== null ? { reply_to_message_id: replyToMessageId } : {}),
+      reply_markup: { force_reply: true },
+    });
+  } catch (err) {
+    console.error('[review-bot] failed to send edit prompt:', err);
+  }
+}
+
 export function startReviewBot(): void {
   const token = process.env.REVIEW_BOT_TOKEN;
   const ownerChatIdRaw = process.env.REVIEW_BOT_OWNER_CHAT_ID;
