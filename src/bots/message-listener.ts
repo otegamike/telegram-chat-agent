@@ -5,7 +5,7 @@ import { createTelegramClient, connectWithSession } from '../services/telegram-c
 import { syncChatDirectory } from '../services/telegram-chats';
 import { connectDb } from '../services/db';
 import { registerClient } from '../services/telegram-sender';
-import { handleIncoming } from '../services/review-manager';
+import { handleIncoming, resumePendingDrafts } from '../services/review-manager';
 import { scheduleTopicMaintenance } from '../services/maintenance';
 import { catchUpUnread } from '../services/catch-up';
 import { installConnectionStateHook, startConnectionWatchdog } from '../services/watchdog';
@@ -80,6 +80,14 @@ export async function startMessageListener(): Promise<void> {
         console.log(`[listener] synced ${count} chats into the chat directory`);
       } catch (err) {
         console.error('[listener] chat directory sync failed (continuing anyway):', err);
+      }
+      try {
+        const resumed = await resumePendingDrafts();
+        if (resumed > 0) {
+          console.log(`[listener] resumed ${resumed} pending draft(s) for review`);
+        }
+      } catch (err) {
+        console.error('[listener] pending-draft resume failed (continuing):', err);
       }
       try {
         const processed = await catchUpUnread(client);

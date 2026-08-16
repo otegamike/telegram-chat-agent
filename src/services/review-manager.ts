@@ -1,6 +1,6 @@
 import { DraftModel } from '../models/Draft';
 import { ChatConfigModel } from '../models/ChatConfig';
-import { setReviewHandlers, editDraftNotification, sendEditPrompt, ReviewAction } from '../bots/review-bot';
+import { setReviewHandlers, editDraftNotification, sendEditPrompt, sendDraftNotification, ReviewAction } from '../bots/review-bot';
 import { appendIncomingMessage, appendSentMessage, draftReply, IncomingMessageInfo } from './pipeline';
 import { getSettings } from './settings';
 import { sendAsUser, markChatAsRead } from './telegram-sender';
@@ -340,4 +340,79 @@ export function initReviewManager(): void {
     onOwnerText: (text) => handleOwnerText(text),
   });
   console.log('[review-manager] handlers registered with review bot');
+}
+
+export async function resumePendingDrafts(): Promise<number> {
+  const raw = process.env.RESUME_PENDING_DRAFTS;
+  if (raw === '0' || raw === 'false' || raw === 'False') {
+    console.log('[review-manager] pending-draft resume disabled via RESUME_PENDING_DRAFTS');
+    return 0;
+  }
+
+  const drafts = await DraftModel.find({ status: 'pending' })
+    .sort({ createdAt: -1 })
+    .lean()
+    .exec();
+  if (drafts.length === 0) {
+    return 0;
+  }
+
+  const newestByChat = new Map<string, (typeof drafts)[number]>();
+  const superseded: string[] = [];
+  for (const d of drafts) {
+    const existing = newestByChat.get(d.chatId);
+    if (!existing) {
+      newestByChat.set(d.chatId, d);
+    } else {
+      superseded.push(String(d._id));
+    }
+  }
+
+  if (superseded.length > 0) {
+    await DraftModel.updateMany(
+      { _id: { $in: superseded }, status: 'pending' },
+      { $set: { status: 'skipped' } }
+    ).exec();
+    console.log(`[review-manager] marked ${superseded.length} superseded pending draft(s) as skipped`);
+  }
+
+  let resumed = 0;
+  for (const draft of newestByChat.values()) {
+    const chatId = draft.chatId;
+    const config = await ChatConfigModel.findOne({ chatId }).lean().exec();
+    if (!config || !config.autoReplyEnabled) {
+      await DraftModel.updateOne(
+        { _id: draft._id },
+        { $set: { status: 'skipped' } }
+      ).exec();
+      console.log(`[review-manager] pending draft ${draft._id} skipped — chat ${chatId} not in allow-list`);
+      continue;
+    }
+
+    const peerUsername = config.peerUsername || '';
+    const flow = getFlow(chatId, peerUsername);
+    flow.status = 'awaiting';
+    flow.pendingDraftId = String(draft._id);
+    flow.pendingNotificationMessageId = null;
+
+    try {
+      const notificationMessageId = await sendDraftNotification({
+        chatId,
+        senderName: peerUsername || 'unknown',
+        incomingMessage: draft.incomingMessage,
+        draftText: draft.draftText,
+        draftId: String(draft._id),
+      });
+      flow.pendingNotificationMessageId = notificationMessageId;
+      await scheduleAutoSend(flow);
+      resumed += 1;
+      console.log(
+        `[review-manager] resumed pending draft ${draft._id} for chat ${chatId} (${peerUsername || 'unknown'})`
+      );
+    } catch (err) {
+      console.error(`[review-manager] failed to notify resumed draft ${draft._id} (continuing):`, err);
+    }
+  }
+
+  return resumed;
 }
