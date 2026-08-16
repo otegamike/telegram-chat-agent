@@ -11,6 +11,7 @@ import { TelegramChatModel } from '../models/TelegramChat';
 import { ConversationModel } from '../models/Conversation';
 import { DraftModel } from '../models/Draft';
 import { ensureDefaultMasterPrompt } from '../services/master-prompt';
+import { getSettings, updateSettings } from '../services/settings';
 
 const COOKIE_NAME = 'adtoken';
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -135,6 +136,52 @@ function serializeChatConfig(doc: Record<string, unknown> & { _id: unknown }): R
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
   };
+}
+
+function serializeDraft(doc: Record<string, unknown> & { _id: unknown }): Record<string, unknown> {
+  return {
+    id: String(doc._id),
+    chatId: doc.chatId,
+    incomingMessage: doc.incomingMessage,
+    draftText: doc.draftText,
+    finalText: doc.finalText ?? null,
+    status: doc.status,
+    wasEdited: doc.wasEdited,
+    createdAt: doc.createdAt,
+  };
+}
+
+function serializeTopic(t: Record<string, unknown>): Record<string, unknown> {
+  return {
+    topicId: t.topicId ?? null,
+    label: t.label,
+    summary: t.summary,
+    lastMentioned: t.lastMentioned,
+    archived: !!t.archived,
+  };
+}
+
+async function loadTopicConversation(
+  chatId: string
+): Promise<InstanceType<typeof ConversationModel>> {
+  let doc = await ConversationModel.findOne({ chatId }).exec();
+  if (!doc) {
+    const config = await ChatConfigModel.findOne({ chatId }).lean().exec();
+    doc = await ConversationModel.create({
+      chatId,
+      peerUsername: config?.peerUsername ?? '',
+      messages: [],
+    });
+  }
+  return doc;
+}
+
+function findTopicIndex(
+  doc: InstanceType<typeof ConversationModel>,
+  topicId: string
+): number {
+  const topics = (doc.topics as unknown as Array<{ topicId?: string | null }> | undefined) ?? [];
+  return topics.findIndex((t) => t.topicId === topicId);
 }
 
 function normalizeChatId(raw: unknown): string | null {
@@ -364,7 +411,7 @@ export async function startAdminServer(): Promise<void> {
               text: m.text,
               timestamp: m.timestamp,
             })),
-            summary: conversation.summary ?? '',
+            topics: (conversation.topics ?? []).map((t) => serializeTopic(t as never)),
             lastUpdated: conversation.lastUpdated,
           }
         : null,
@@ -380,6 +427,103 @@ export async function startAdminServer(): Promise<void> {
       chatPrompt: chatPrompt ? serializePrompt(chatPrompt as never) : null,
       defaultPrompt: serializePrompt(defaultPrompt.toObject() as never),
     });
+  });
+
+  app.get('/api/chat/:chatId/topics', requireAuth, async (req, res) => {
+    const chatId = String(req.params.chatId).trim();
+    if (!chatId) {
+      res.status(400).json({ error: 'chatId is required' });
+      return;
+    }
+    const doc = await ConversationModel.findOne({ chatId }).lean().exec();
+    const topics = (doc?.topics as unknown as Array<Record<string, unknown>> | undefined) ?? [];
+    res.json({ topics: topics.map((t) => serializeTopic(t)) });
+  });
+
+  app.post('/api/chat/:chatId/topics', requireAuth, async (req, res) => {
+    const chatId = String(req.params.chatId).trim();
+    if (!chatId) {
+      res.status(400).json({ error: 'chatId is required' });
+      return;
+    }
+    const label = typeof req.body?.label === 'string' ? req.body.label.trim() : '';
+    const summary = typeof req.body?.summary === 'string' ? req.body.summary.trim() : '';
+    if (!label || !summary) {
+      res.status(400).json({ error: 'label and summary are required' });
+      return;
+    }
+
+    const doc = await loadTopicConversation(chatId);
+    const topic = {
+      topicId: crypto.randomUUID(),
+      label,
+      summary,
+      lastMentioned: new Date(),
+      archived: false,
+    };
+    (doc.topics as unknown as Record<string, unknown>[]).push(topic);
+    doc.lastUpdated = new Date();
+    await doc.save();
+    res.status(201).json(serializeTopic(topic as never));
+  });
+
+  app.put('/api/chat/:chatId/topics/:topicId', requireAuth, async (req, res) => {
+    const chatId = String(req.params.chatId).trim();
+    const topicId = String(req.params.topicId).trim();
+    if (!chatId || !topicId) {
+      res.status(400).json({ error: 'chatId and topicId are required' });
+      return;
+    }
+
+    const doc = await ConversationModel.findOne({ chatId }).exec();
+    if (!doc) {
+      res.status(404).json({ error: 'No conversation found for this chat' });
+      return;
+    }
+    const idx = findTopicIndex(doc, topicId);
+    if (idx === -1) {
+      res.status(404).json({ error: 'Topic not found' });
+      return;
+    }
+
+    const topic = (doc.topics as unknown as Array<Record<string, unknown>>)[idx];
+    if (typeof req.body?.label === 'string') {
+      topic.label = req.body.label.trim() || String(topic.label);
+    }
+    if (typeof req.body?.summary === 'string') {
+      topic.summary = req.body.summary.trim() || String(topic.summary);
+    }
+    if (typeof req.body?.archived === 'boolean') {
+      topic.archived = req.body.archived;
+    }
+    doc.lastUpdated = new Date();
+    await doc.save();
+    res.json(serializeTopic(topic));
+  });
+
+  app.delete('/api/chat/:chatId/topics/:topicId', requireAuth, async (req, res) => {
+    const chatId = String(req.params.chatId).trim();
+    const topicId = String(req.params.topicId).trim();
+    if (!chatId || !topicId) {
+      res.status(400).json({ error: 'chatId and topicId are required' });
+      return;
+    }
+
+    const doc = await ConversationModel.findOne({ chatId }).exec();
+    if (!doc) {
+      res.status(404).json({ error: 'No conversation found for this chat' });
+      return;
+    }
+    const idx = findTopicIndex(doc, topicId);
+    if (idx === -1) {
+      res.status(404).json({ error: 'Topic not found' });
+      return;
+    }
+
+    (doc.topics as unknown as unknown[]).splice(idx, 1);
+    doc.lastUpdated = new Date();
+    await doc.save();
+    res.json({ ok: true });
   });
 
   app.get('/api/chat-configs', requireAuth, async (_req, res) => {
@@ -413,6 +557,84 @@ export async function startAdminServer(): Promise<void> {
   app.delete('/api/chat-configs/:chatId', requireAuth, async (req, res) => {
     await ChatConfigModel.deleteOne({ chatId: String(req.params.chatId) });
     res.json({ ok: true });
+  });
+
+  app.post('/api/drafts', requireAuth, async (req, res) => {
+    const chatId = typeof req.body?.chatId === 'string' ? req.body.chatId.trim() : '';
+    const incomingMessage =
+      typeof req.body?.incomingMessage === 'string' ? req.body.incomingMessage.trim() : '';
+    const draftText = typeof req.body?.draftText === 'string' ? req.body.draftText.trim() : '';
+    const rawFinalText = typeof req.body?.finalText === 'string' ? req.body.finalText.trim() : '';
+    const finalText = rawFinalText || null;
+    const rawStatus = req.body?.status;
+    const status = rawStatus === 'sent' || rawStatus === 'skipped' ? rawStatus : 'skipped';
+
+    if (!chatId || !incomingMessage || !draftText) {
+      res.status(400).json({ error: 'chatId, incomingMessage and draftText are required' });
+      return;
+    }
+
+    const draft = await DraftModel.create({
+      chatId,
+      incomingMessage,
+      draftText,
+      finalText,
+      status,
+      wasEdited: !!finalText && finalText !== draftText,
+    });
+    res.status(201).json(serializeDraft(draft.toObject() as never));
+  });
+
+  app.put('/api/drafts/:id', requireAuth, async (req, res) => {
+    const draft = await DraftModel.findById(req.params.id).exec();
+    if (!draft) {
+      res.status(404).json({ error: 'Draft not found' });
+      return;
+    }
+
+    if (typeof req.body?.incomingMessage === 'string') {
+      draft.incomingMessage = req.body.incomingMessage.trim();
+    }
+    if (typeof req.body?.draftText === 'string') {
+      draft.draftText = req.body.draftText.trim();
+    }
+    if ('finalText' in req.body) {
+      const rawFinalText = typeof req.body.finalText === 'string' ? req.body.finalText.trim() : '';
+      draft.finalText = rawFinalText || null;
+    }
+    if (req.body?.status === 'sent' || req.body?.status === 'skipped') {
+      draft.status = req.body.status;
+    }
+    draft.wasEdited = !!draft.finalText && draft.finalText !== draft.draftText;
+
+    await draft.save();
+    res.json(serializeDraft(draft.toObject() as never));
+  });
+
+  app.delete('/api/drafts/:id', requireAuth, async (req, res) => {
+    const draft = await DraftModel.findById(req.params.id).exec();
+    if (!draft) {
+      res.status(404).json({ error: 'Draft not found' });
+      return;
+    }
+    await draft.deleteOne();
+    res.json({ ok: true });
+  });
+
+  app.get('/api/settings', requireAuth, async (_req, res) => {
+    const settings = await getSettings();
+    res.json(settings);
+  });
+
+  app.put('/api/settings', requireAuth, async (req, res) => {
+    const raw = req.body?.autoSendDelayMs;
+    const autoSendDelayMs = typeof raw === 'number' ? raw : Number(raw);
+    if (!Number.isFinite(autoSendDelayMs) || autoSendDelayMs < 0) {
+      res.status(400).json({ error: 'autoSendDelayMs must be a non-negative number (0 disables auto-send)' });
+      return;
+    }
+    const settings = await updateSettings({ autoSendDelayMs });
+    res.json(settings);
   });
 
   app.use((req, res) => {

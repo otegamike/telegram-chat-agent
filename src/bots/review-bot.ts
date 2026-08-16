@@ -14,12 +14,21 @@ export interface DraftNotification {
   draftId: string;
 }
 
-export function sendDraftNotification(notification: DraftNotification): void {
-  if (!bot || !ownerChatId) {
-    throw new Error('Review bot not started — cannot send draft notification');
-  }
+export type ReviewAction = 'send' | 'edit' | 'skip';
 
-  const text = [
+export interface ReviewHandlers {
+  onCallbackQuery: (action: ReviewAction, draftId: string) => Promise<void>;
+  onOwnerText: (text: string) => Promise<void>;
+}
+
+let reviewHandlers: ReviewHandlers | null = null;
+
+export function setReviewHandlers(handlers: ReviewHandlers): void {
+  reviewHandlers = handlers;
+}
+
+function notificationText(notification: DraftNotification): string {
+  return [
     `@${notification.senderName} (${notification.chatId})`,
     '',
     `Incoming:`,
@@ -28,22 +37,43 @@ export function sendDraftNotification(notification: DraftNotification): void {
     `Draft:`,
     `"${notification.draftText}"`,
   ].join('\n');
+}
 
-  bot
-    .sendMessage(ownerChatId, text, {
-      reply_markup: {
-        inline_keyboard: [
-          [
-            { text: '\u2705 Send', callback_data: `send:${notification.draftId}` },
-            { text: '\u270f\ufe0f Edit', callback_data: `edit:${notification.draftId}` },
-            { text: '\u274c Skip', callback_data: `skip:${notification.draftId}` },
-          ],
+export async function sendDraftNotification(
+  notification: DraftNotification
+): Promise<number | null> {
+  if (!bot || !ownerChatId) {
+    throw new Error('Review bot not started — cannot send draft notification');
+  }
+  const message = await bot.sendMessage(ownerChatId, notificationText(notification), {
+    reply_markup: {
+      inline_keyboard: [
+        [
+          { text: '\u2705 Send', callback_data: `send:${notification.draftId}` },
+          { text: '\u270f\ufe0f Edit', callback_data: `edit:${notification.draftId}` },
+          { text: '\u274c Skip', callback_data: `skip:${notification.draftId}` },
         ],
-      },
-    })
-    .catch((err) => {
-      console.error('[review-bot] failed to send draft notification:', err);
+      ],
+    },
+  });
+  return message.message_id ?? null;
+}
+
+export async function editDraftNotification(
+  messageId: number | null,
+  text: string
+): Promise<void> {
+  if (!bot || !ownerChatId || messageId === null) {
+    return;
+  }
+  try {
+    await bot.editMessageText(text, {
+      chat_id: ownerChatId,
+      message_id: messageId,
     });
+  } catch (err) {
+    console.error('[review-bot] failed to edit draft notification:', err);
+  }
 }
 
 export function startReviewBot(): void {
@@ -72,12 +102,59 @@ export function startReviewBot(): void {
       return;
     }
 
-    if (msg.text?.trim() === '/start') {
+    const text = msg.text?.trim();
+    if (!text) {
+      return;
+    }
+
+    if (text === '/start') {
       try {
         await bot!.sendMessage(ownerChatId, STATIC_REPLY);
         console.log('[review-bot] message sent to owner');
       } catch (err) {
         console.error('[review-bot] failed to reply to /start:', err);
+      }
+      return;
+    }
+
+    if (reviewHandlers) {
+      try {
+        await reviewHandlers.onOwnerText(text);
+      } catch (err) {
+        console.error('[review-bot] onOwnerText handler error:', err);
+        try {
+          await bot!.sendMessage(ownerChatId, `[error] ${String(err)}`);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  });
+
+  bot.on('callback_query', async (query) => {
+    const fromId = query.from?.id;
+    if (fromId !== ownerChatId) {
+      try {
+        await bot!.answerCallbackQuery(query.id, { text: 'Not authorized' });
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
+
+    const data = query.data ?? '';
+    const [action, draftId] = data.split(':');
+    if (
+      (action === 'send' || action === 'edit' || action === 'skip') &&
+      draftId
+    ) {
+      try {
+        await bot!.answerCallbackQuery(query.id);
+        if (reviewHandlers) {
+          await reviewHandlers.onCallbackQuery(action, draftId);
+        }
+      } catch (err) {
+        console.error('[review-bot] callback handler error:', err);
       }
     }
   });

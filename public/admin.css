@@ -177,6 +177,77 @@ legend {
   color: #fff;
 }
 
+.btn.loading {
+  cursor: wait;
+  opacity: 0.7;
+  pointer-events: none;
+  position: relative;
+}
+
+.btn.loading::after {
+  content: "";
+  display: inline-block;
+  width: 0.7rem;
+  height: 0.7rem;
+  margin-left: 0.45rem;
+  vertical-align: -2px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.toast-container {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  pointer-events: none;
+}
+
+.toast {
+  min-width: 180px;
+  max-width: 340px;
+  padding: 0.6rem 0.9rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+  color: var(--text);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  font-size: 0.9rem;
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: opacity 0.25s, transform 0.25s;
+  pointer-events: auto;
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.toast.success {
+  border-color: #15803d;
+}
+
+.toast.error {
+  border-color: var(--danger);
+}
+
+.loading-hint {
+  padding: 0.6rem 0.75rem;
+  font-size: 0.9rem;
+}
+
 .btn.small {
   padding: 0.3rem 0.6rem;
   font-size: 0.85rem;
@@ -383,6 +454,81 @@ legend {
 
 .draft-line.edited {
   color: #4ade80;
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.draft-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.draft-header .btn {
+  padding: 0.15rem 0.6rem;
+  font-size: 0.75rem;
+}
+
+.draft-editing textarea,
+.draft-editing select {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 0.4rem;
+}
+
+.topic {
+  flex-direction: column;
+  align-items: stretch;
+  cursor: default;
+}
+
+.topic:hover {
+  border-color: var(--border);
+}
+
+.topic-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.topic-actions {
+  display: inline-flex;
+  gap: 0.35rem;
+}
+
+.topic-actions .btn {
+  padding: 0.15rem 0.6rem;
+  font-size: 0.75rem;
+}
+
+.topic .li-meta {
+  font-size: 0.75rem;
+}
+
+.topic-editing input[type="text"],
+.topic-editing textarea {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 0.4rem;
+}
+
+.topic-editing label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.draft-editing label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
 }
 
 #back-link {

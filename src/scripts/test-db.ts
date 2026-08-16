@@ -22,7 +22,7 @@ async function main(): Promise<void> {
             timestamp: new Date(),
           },
         ],
-        summary: '',
+        topics: [],
         lastUpdated: new Date(),
       },
     },

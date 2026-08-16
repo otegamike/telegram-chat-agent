@@ -9,6 +9,7 @@ const state = {
   currentPrompt: null,
   editing: false,
   tab: 'prompts',
+  settings: { autoSendDelayMs: 240000 },
 };
 
 const loginView = $('login-view');
@@ -22,6 +23,8 @@ const promptError = $('prompt-error');
 const fewShotRows = $('few-shot-rows');
 const deletePromptBtn = $('delete-prompt');
 const chatListView = $('chat-list');
+const loginBtn = $('login-submit');
+const logoutBtnEl = logoutBtn;
 
 async function api(path, options) {
   const res = await fetch(path, {
@@ -55,6 +58,7 @@ async function login() {
   hideError($('login-error'));
   const username = $('login-username').value.trim();
   const password = $('login-password').value;
+  busy(loginBtn, true, 'Logging in…');
   try {
     const body = await api('/api/login', {
       method: 'POST',
@@ -64,20 +68,26 @@ async function login() {
     showApp();
   } catch (err) {
     showError($('login-error'), err.message);
+  } finally {
+    busy(loginBtn, false);
   }
 }
 
 async function logout() {
+  busy(logoutBtnEl, true, 'Logging out…');
   try {
     await api('/api/logout', { method: 'POST' });
   } catch {
     /* ignore */
+  } finally {
+    busy(logoutBtnEl, false);
   }
   state.username = null;
   showLogin();
 }
 
 async function loadPrompts() {
+  showListLoading(promptListView, 'Loading prompts…');
   try {
     state.prompts = (await api('/api/prompts')) || [];
   } catch (err) {
@@ -85,6 +95,14 @@ async function loadPrompts() {
     state.prompts = [];
   }
   renderPromptList();
+}
+
+function showListLoading(listEl, message) {
+  listEl.textContent = '';
+  const li = document.createElement('li');
+  li.className = 'list-item muted loading-hint';
+  li.textContent = message;
+  listEl.appendChild(li);
 }
 
 function renderPromptList() {
@@ -229,6 +247,7 @@ function startNewPrompt() {
 async function savePrompt(evt) {
   evt.preventDefault();
   hideError(promptError);
+  const saveBtn = promptForm.querySelector('button[type="submit"]');
   const keyRaw = $('f-key').value.trim();
   const payload = {
     name: $('f-name').value.trim(),
@@ -238,6 +257,7 @@ async function savePrompt(evt) {
     fewShotExamples: collectFewShot(),
     correctionsBlock: $('f-corrections').value.trim() || null,
   };
+  busy(saveBtn, true, 'Saving…');
   try {
     if (state.editing) {
       const id = state.currentPrompt.id;
@@ -262,8 +282,11 @@ async function savePrompt(evt) {
     }
     renderPromptList();
     showEditor();
+    toast('Prompt saved');
   } catch (err) {
     showError(promptError, err.message);
+  } finally {
+    busy(saveBtn, false);
   }
 }
 
@@ -274,6 +297,7 @@ async function deletePrompt() {
   }
   hideError(promptError);
   const id = state.currentPrompt.id;
+  busy(deletePromptBtn, true, 'Deleting…');
   try {
     await api(`/api/prompts/${id}`, { method: 'DELETE' });
     state.prompts = state.prompts.filter((p) => p.id !== id);
@@ -282,12 +306,16 @@ async function deletePrompt() {
     promptForm.hidden = true;
     promptEditorTitle.textContent = 'Select a prompt';
     renderPromptList();
+    toast('Prompt deleted');
   } catch (err) {
     showError(promptError, err.message);
+  } finally {
+    busy(deletePromptBtn, false);
   }
 }
 
 async function loadChats() {
+  showListLoading(chatListView, 'Loading chats…');
   try {
     state.chats = (await api('/api/chat-configs')) || [];
   } catch (err) {
@@ -392,6 +420,7 @@ function renderChatList() {
 
 async function saveChat(chat, patch, cb) {
   const previous = chat.autoReplyEnabled;
+  cb.disabled = true;
   try {
     const saved = await api(
       `/api/chat-configs/${encodeURIComponent(chat.chatId)}`,
@@ -400,9 +429,12 @@ async function saveChat(chat, patch, cb) {
     chat.autoReplyEnabled = saved.autoReplyEnabled;
     chat.peerUsername = saved.peerUsername || '';
     cb.checked = !!saved.autoReplyEnabled;
+    toast('Auto-reply updated');
   } catch (err) {
     cb.checked = previous;
-    window.alert(`Failed to update chat: ${err.message}`);
+    toast(err.message, 'error');
+  } finally {
+    cb.disabled = false;
   }
 }
 
@@ -420,6 +452,8 @@ async function addChat(evt) {
   const chatId = $('chat-add-id').value.trim();
   const peerUsername = $('chat-add-user').value.trim();
   if (!chatId) return;
+  const btn = $('chat-add-form').querySelector('button[type="submit"]');
+  busy(btn, true, 'Adding…');
   try {
     const saved = await api(`/api/chat-configs/${encodeURIComponent(chatId)}`, {
       method: 'PUT',
@@ -437,19 +471,65 @@ async function addChat(evt) {
     $('chat-add-id').value = '';
     $('chat-add-user').value = '';
     renderChatList();
+    toast('Chat added');
   } catch (err) {
-    window.alert(`Failed to add chat: ${err.message}`);
+    toast(err.message, 'error');
+  } finally {
+    busy(btn, false);
   }
 }
 
 async function removeChat(id, chatId, li) {
   if (!window.confirm(`Remove chat ${chatId} from the allow-list?`)) return;
+  const btn = li.querySelector('button.danger');
+  busy(btn, true, 'Removing…');
   try {
     await api(`/api/chat-configs/${encodeURIComponent(chatId)}`, { method: 'DELETE' });
     state.chats = state.chats.filter((c) => c.id !== id);
     renderChatList();
+    toast('Chat removed');
   } catch (err) {
-    window.alert(`Failed to remove chat: ${err.message}`);
+    toast(err.message, 'error');
+  } finally {
+    busy(btn, false);
+  }
+}
+
+async function loadSettings() {
+  hideError($('settings-error'));
+  const saveBtn = $('settings-form').querySelector('button[type="submit"]');
+  busy(saveBtn, true, 'Loading…');
+  try {
+    state.settings = (await api('/api/settings')) || state.settings;
+    $('auto-send-delay').value = state.settings.autoSendDelayMs;
+  } catch (err) {
+    toast(`Failed to load settings: ${err.message}`, 'error');
+  } finally {
+    busy(saveBtn, false);
+  }
+}
+
+async function saveSettings(evt) {
+  evt.preventDefault();
+  hideError($('settings-error'));
+  const autoSendDelayMs = Number($('auto-send-delay').value);
+  if (!Number.isFinite(autoSendDelayMs) || autoSendDelayMs < 0) {
+    showError($('settings-error'), 'Delay must be a non-negative number (0 disables auto-send).');
+    return;
+  }
+  const saveBtn = $('settings-form').querySelector('button[type="submit"]');
+  busy(saveBtn, true, 'Saving…');
+  try {
+    state.settings = await api('/api/settings', {
+      method: 'PUT',
+      body: JSON.stringify({ autoSendDelayMs }),
+    });
+    $('auto-send-delay').value = state.settings.autoSendDelayMs;
+    toast('Settings saved');
+  } catch (err) {
+    showError($('settings-error'), err.message);
+  } finally {
+    busy(saveBtn, false);
   }
 }
 
@@ -467,14 +547,17 @@ function showApp() {
   who.textContent = state.username ? `Signed in as ${state.username}` : '';
   loadPrompts();
   loadChats();
+  loadSettings();
 }
 
 function switchTab(tab) {
   state.tab = tab;
   $('tab-prompts').classList.toggle('active', tab === 'prompts');
   $('tab-chats').classList.toggle('active', tab === 'chats');
+  $('tab-settings').classList.toggle('active', tab === 'settings');
   $('prompts-view').hidden = tab !== 'prompts';
   $('chats-view').hidden = tab !== 'chats';
+  $('settings-view').hidden = tab !== 'settings';
 }
 
 function bindEvents() {
@@ -485,6 +568,7 @@ function bindEvents() {
   logoutBtn.addEventListener('click', logout);
   $('tab-prompts').addEventListener('click', () => switchTab('prompts'));
   $('tab-chats').addEventListener('click', () => switchTab('chats'));
+  $('tab-settings').addEventListener('click', () => switchTab('settings'));
   $('new-prompt').addEventListener('click', startNewPrompt);
   promptForm.addEventListener('submit', savePrompt);
   deletePromptBtn.addEventListener('click', deletePrompt);
@@ -492,6 +576,7 @@ function bindEvents() {
   $('chat-add-form').addEventListener('submit', addChat);
   $('chat-picker').addEventListener('change', onChatPicked);
   $('chat-refresh').addEventListener('click', loadChatDirectory);
+  $('settings-form').addEventListener('submit', saveSettings);
 }
 
 async function init() {

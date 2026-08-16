@@ -7,6 +7,7 @@ const state = {
   username: null,
   data: null,
   prompt: null,
+  prompts: [],
   editing: false,
 };
 
@@ -17,7 +18,7 @@ const logoutBtn = $('logout');
 const promptForm = $('prompt-form');
 const promptError = $('prompt-error');
 const fewShotRows = $('few-shot-rows');
-const createChatPromptBtn = $('create-chat-prompt');
+const loginBtn = $('login-submit');
 
 function chatIdFromUrl() {
   const params = new URLSearchParams(window.location.search);
@@ -56,6 +57,7 @@ async function login() {
   hideError($('login-error'));
   const username = $('login-username').value.trim();
   const password = $('login-password').value;
+  busy(loginBtn, true, 'Logging in…');
   try {
     const body = await api('/api/login', {
       method: 'POST',
@@ -65,10 +67,13 @@ async function login() {
     showChat();
   } catch (err) {
     showError($('login-error'), err.message);
+  } finally {
+    busy(loginBtn, false);
   }
 }
 
 async function logout() {
+  busy(logoutBtn, true, 'Logging out…');
   try {
     await api('/api/logout', { method: 'POST' });
   } catch {
@@ -76,6 +81,7 @@ async function logout() {
   }
   state.username = null;
   showLogin();
+  busy(logoutBtn, false);
 }
 
 function showLogin() {
@@ -95,16 +101,29 @@ function showChat() {
 
 async function loadChat() {
   hideError($('chat-load-error'));
+  $('chat-title').textContent = 'Loading chat…';
   try {
     state.data = await api(`/api/chat/${encodeURIComponent(state.chatId)}`);
   } catch (err) {
     showError($('chat-load-error'), `Failed to load chat: ${err.message}`);
+    $('chat-title').textContent = 'Chat';
     return;
   }
   renderHeader();
+  await loadPrompts();
   renderPrompt();
   renderHistory();
   renderDrafts();
+}
+
+async function loadPrompts() {
+  try {
+    state.prompts = (await api('/api/prompts')) || [];
+  } catch (err) {
+    state.prompts = [];
+    toast(`Failed to load prompts: ${err.message}`, 'error');
+  }
+  renderPromptPicker();
 }
 
 function renderHeader() {
@@ -126,15 +145,19 @@ function renderHeader() {
   const cb = $('auto-reply');
   cb.checked = !!config.autoReplyEnabled;
   cb.onchange = async () => {
+    cb.disabled = true;
     try {
       const saved = await api(`/api/chat-configs/${encodeURIComponent(state.chatId)}`, {
         method: 'PUT',
         body: JSON.stringify({ autoReplyEnabled: cb.checked }),
       });
       cb.checked = !!saved.autoReplyEnabled;
+      toast('Auto-reply updated');
     } catch (err) {
       cb.checked = !cb.checked;
-      window.alert(`Failed to update auto-reply: ${err.message}`);
+      toast(err.message, 'error');
+    } finally {
+      cb.disabled = false;
     }
   };
 }
@@ -188,13 +211,86 @@ function collectFewShot() {
 }
 
 function fillPromptForm(p) {
-  $('f-key').value = p.key;
-  $('f-key').disabled = true;
   $('f-name').value = p.name || '';
   $('f-enabled').checked = !!p.enabled;
   $('f-system').value = p.systemPrompt || '';
   $('f-corrections').value = p.correctionsBlock || '';
   renderFewShotRows(p.fewShotExamples);
+}
+
+function promptLabel(p) {
+  const name = p.name || p.key;
+  if (!p.chatId) return `${name} (global)`;
+  if (p.chatId === state.chatId) return `${name} (this chat)`;
+  return `${name} (${p.chatId})`;
+}
+
+function renderPromptPicker() {
+  const picker = $('prompt-picker');
+  const currentKey = state.prompt ? state.prompt.key : '';
+  picker.textContent = '';
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = 'Select a prompt…';
+  picker.appendChild(placeholder);
+  for (const p of state.prompts) {
+    const opt = document.createElement('option');
+    opt.value = p.key;
+    opt.textContent = promptLabel(p);
+    opt.selected = p.key === currentKey;
+    picker.appendChild(opt);
+  }
+}
+
+async function onPromptPicked() {
+  const picker = $('prompt-picker');
+  const key = picker.value;
+  if (!key) return;
+  const currentKey = state.prompt ? state.prompt.key : '';
+  if (key === currentKey) return;
+  const source = state.prompts.find((p) => p.key === key);
+  if (!source) return;
+  const chat = state.data.chat || {};
+  const config = state.data.config || {};
+  const username = chat.username || config.peerUsername || state.chatId;
+  const name = `${username}_prompt`;
+  const payload = {
+    name,
+    chatId: state.chatId,
+    systemPrompt: source.systemPrompt || '',
+    fewShotExamples: source.fewShotExamples || [],
+    correctionsBlock: source.correctionsBlock || null,
+    enabled: true,
+  };
+  hideError(promptError);
+  picker.disabled = true;
+  toast('Copying prompt…');
+  try {
+    if (state.editing && state.prompt && state.data.chatPrompt) {
+      state.data.chatPrompt = await api(`/api/prompts/${state.data.chatPrompt.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
+    } else {
+      state.data.chatPrompt = await api('/api/prompts', {
+        method: 'POST',
+        body: JSON.stringify({ key: state.chatId, ...payload }),
+      });
+      state.prompts.push(state.data.chatPrompt);
+    }
+    state.prompt = state.data.chatPrompt;
+    state.editing = true;
+    renderPrompt();
+    renderPromptPicker();
+    toast(`Prompt "${source.name || key}" copied to this chat`);
+  } catch (err) {
+    toast(err.message, 'error');
+    state.prompt = state.data.chatPrompt || state.data.defaultPrompt;
+    state.editing = !!state.data.chatPrompt;
+    renderPromptPicker();
+  } finally {
+    picker.disabled = false;
+  }
 }
 
 function renderPrompt() {
@@ -206,10 +302,9 @@ function renderPrompt() {
   $('prompt-fallback').hidden = !!chatPrompt;
   $('prompt-fallback').textContent = chatPrompt
     ? ''
-    : `This chat uses the global default prompt ("${defaultPrompt?.name || defaultPrompt?.key || 'default'}"). Click "Create chat-specific prompt" to give it its own voice.`;
+    : `This chat uses the global default prompt ("${defaultPrompt?.name || defaultPrompt?.key || 'default'}"). Pick a prompt above to give it its own voice.`;
 
   promptForm.hidden = false;
-  createChatPromptBtn.hidden = !!chatPrompt;
   hideError(promptError);
   fillPromptForm(state.prompt);
 }
@@ -224,6 +319,8 @@ async function savePrompt(evt) {
     fewShotExamples: collectFewShot(),
     correctionsBlock: $('f-corrections').value.trim() || null,
   };
+  const saveBtn = promptForm.querySelector('button[type="submit"]');
+  busy(saveBtn, true, 'Saving…');
   try {
     if (state.editing) {
       const saved = await api(`/api/prompts/${state.prompt.id}`, {
@@ -232,7 +329,6 @@ async function savePrompt(evt) {
       });
       state.prompt = saved;
       state.data.chatPrompt = saved;
-      $('f-key').value = saved.key;
     } else {
       const saved = await api('/api/prompts', {
         method: 'POST',
@@ -245,48 +341,219 @@ async function savePrompt(evt) {
       state.data.chatPrompt = saved;
       state.prompt = saved;
       state.editing = true;
-      $('f-key').value = saved.key;
-      createChatPromptBtn.hidden = true;
       $('prompt-fallback').hidden = true;
     }
     renderPrompt();
+    renderPromptPicker();
+    toast('Prompt saved');
   } catch (err) {
     showError(promptError, err.message);
-  }
-}
-
-async function createChatPrompt() {
-  hideError(promptError);
-  const source = state.data.defaultPrompt;
-  try {
-    const created = await api('/api/prompts', {
-      method: 'POST',
-      body: JSON.stringify({
-        key: state.chatId,
-        name: `Chat ${state.chatId}`,
-        chatId: state.chatId,
-        enabled: true,
-        systemPrompt: source?.systemPrompt || '',
-        fewShotExamples: source?.fewShotExamples || [],
-        correctionsBlock: source?.correctionsBlock || null,
-      }),
-    });
-    state.data.chatPrompt = created;
-    state.data.chatId = state.chatId;
-    state.prompt = created;
-    state.editing = true;
-    renderPrompt();
-  } catch (err) {
-    showError(promptError, err.message);
+  } finally {
+    busy(saveBtn, false);
   }
 }
 
 function renderHistory() {
   const conv = state.data.conversation;
-  const summaryEl = $('history-summary');
-  summaryEl.hidden = !conv || !conv.summary;
-  summaryEl.textContent = conv && conv.summary ? `Summary: ${conv.summary}` : '';
+  renderTopics(conv);
+  renderMessages(conv);
+}
 
+function renderTopics(conv) {
+  const listEl = $('topic-list');
+  const emptyEl = $('topic-empty');
+  listEl.textContent = '';
+  const topics = (conv && conv.topics) || [];
+  listEl.hidden = topics.length === 0;
+  emptyEl.hidden = topics.length > 0;
+  emptyEl.textContent = topics.length === 0
+    ? 'No topics yet. Topics are extracted automatically as this chat\'s history grows, or add your own context below.'
+    : '';
+  for (const t of topics) {
+    listEl.appendChild(renderTopicItem(t));
+  }
+}
+
+function renderTopicItem(t) {
+  const li = document.createElement('li');
+  li.className = 'list-item topic' + (t.archived ? ' muted' : '');
+  li.dataset.topicId = t.topicId || '';
+
+  const head = document.createElement('div');
+  head.className = 'topic-header';
+
+  const titleBox = document.createElement('div');
+  const title = document.createElement('span');
+  title.className = 'li-title';
+  title.textContent = t.label;
+  titleBox.appendChild(title);
+  if (t.archived) {
+    const badge = document.createElement('span');
+    badge.className = 'badge';
+    badge.textContent = 'archived';
+    titleBox.appendChild(badge);
+  }
+
+  const actions = document.createElement('span');
+  actions.className = 'topic-actions';
+  const editBtn = document.createElement('button');
+  editBtn.type = 'button';
+  editBtn.className = 'btn small';
+  editBtn.textContent = 'Edit';
+  editBtn.addEventListener('click', () => renderTopicEdit(li, t));
+
+  const archiveBtn = document.createElement('button');
+  archiveBtn.type = 'button';
+  archiveBtn.className = 'btn small';
+  archiveBtn.textContent = t.archived ? 'Unarchive' : 'Archive';
+  archiveBtn.addEventListener('click', () => {
+    busy(archiveBtn, true, '…');
+    api(`/api/chat/${encodeURIComponent(state.chatId)}/topics/${encodeURIComponent(t.topicId)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ archived: !t.archived }),
+    })
+      .then(() => {
+        toast(t.archived ? 'Topic unarchived' : 'Topic archived');
+        return loadTopics();
+      })
+      .catch((err) => {
+        busy(archiveBtn, false);
+        toast(err.message, 'error');
+      });
+  });
+
+  const deleteBtn = document.createElement('button');
+  deleteBtn.type = 'button';
+  deleteBtn.className = 'btn small danger';
+  deleteBtn.textContent = 'Delete';
+  deleteBtn.addEventListener('click', () => {
+    if (!window.confirm(`Delete topic "${t.label}"?`)) return;
+    busy(deleteBtn, true, 'Deleting…');
+    api(`/api/chat/${encodeURIComponent(state.chatId)}/topics/${encodeURIComponent(t.topicId)}`, {
+      method: 'DELETE',
+    })
+      .then(() => {
+        toast('Topic deleted');
+        return loadTopics();
+      })
+      .catch((err) => {
+        busy(deleteBtn, false);
+        toast(err.message, 'error');
+      });
+  });
+
+  actions.appendChild(editBtn);
+  actions.appendChild(archiveBtn);
+  actions.appendChild(deleteBtn);
+  head.appendChild(titleBox);
+  head.appendChild(actions);
+
+  const meta = document.createElement('small');
+  meta.className = 'li-meta';
+  meta.textContent = t.lastMentioned
+    ? `Last mentioned ${new Date(t.lastMentioned).toLocaleString()}`
+    : '';
+
+  const desc = document.createElement('div');
+  desc.textContent = t.summary;
+
+  li.appendChild(head);
+  li.appendChild(meta);
+  li.appendChild(desc);
+  return li;
+}
+
+function renderTopicEdit(li, t) {
+  li.textContent = '';
+  li.className = 'list-item topic topic-editing';
+
+  const labelEl = document.createElement('label');
+  labelEl.textContent = 'Label:';
+  const labelInput = document.createElement('input');
+  labelInput.type = 'text';
+  labelInput.value = t.label || '';
+  labelInput.placeholder = 'e.g. work projects';
+
+  const summaryLabel = document.createElement('label');
+  summaryLabel.textContent = 'Summary:';
+  const summaryInput = document.createElement('textarea');
+  summaryInput.value = t.summary || '';
+  summaryInput.rows = 3;
+  summaryInput.placeholder = 'Short context notes about this topic';
+
+  const actions = document.createElement('div');
+  actions.className = 'actions';
+  const saveBtn = document.createElement('button');
+  saveBtn.type = 'button';
+  saveBtn.className = 'btn primary small';
+  saveBtn.textContent = 'Save';
+  saveBtn.addEventListener('click', () => {
+    const label = labelInput.value.trim();
+    const summary = summaryInput.value.trim();
+    if (!label || !summary) {
+      toast('Both label and summary are required.', 'error');
+      return;
+    }
+    busy(saveBtn, true, 'Saving…');
+    saveTopic(t, { label, summary })
+      .then(() => toast('Topic saved'))
+      .catch((err) => {
+        busy(saveBtn, false);
+        toast(err.message, 'error');
+      });
+  });
+
+  const cancelBtn = document.createElement('button');
+  cancelBtn.type = 'button';
+  cancelBtn.className = 'btn small';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.addEventListener('click', loadTopics);
+
+  li.appendChild(labelEl);
+  li.appendChild(labelInput);
+  li.appendChild(summaryLabel);
+  li.appendChild(summaryInput);
+  actions.appendChild(saveBtn);
+  actions.appendChild(cancelBtn);
+  li.appendChild(actions);
+}
+
+async function loadTopics() {
+  try {
+    const body = await api(`/api/chat/${encodeURIComponent(state.chatId)}/topics`);
+    if (!state.data.conversation) {
+      state.data.conversation = { messages: [], topics: [] };
+    }
+    state.data.conversation.topics = body.topics || [];
+  } catch (err) {
+    toast(`Failed to load topics: ${err.message}`, 'error');
+  }
+  renderTopics(state.data.conversation);
+}
+
+async function saveTopic(t, payload) {
+  const hasId = !!t.topicId;
+  const url = hasId
+    ? `/api/chat/${encodeURIComponent(state.chatId)}/topics/${encodeURIComponent(t.topicId)}`
+    : `/api/chat/${encodeURIComponent(state.chatId)}/topics`;
+  await api(url, {
+    method: hasId ? 'PUT' : 'POST',
+    body: JSON.stringify(payload),
+  });
+  await loadTopics();
+}
+
+function addTopic() {
+  $('topic-empty').hidden = true;
+  const listEl = $('topic-list');
+  listEl.hidden = false;
+  const li = document.createElement('li');
+  li.className = 'list-item topic topic-editing';
+  listEl.insertBefore(li, listEl.firstChild);
+  renderTopicEdit(li, { topicId: '', label: '', summary: '' });
+}
+
+function renderMessages(conv) {
   const historyEl = $('history');
   historyEl.textContent = '';
   if (!conv || !conv.messages || conv.messages.length === 0) {
@@ -314,6 +581,19 @@ function statusBadge(status) {
   return labels[status] || status;
 }
 
+function serializeDraftShape(d) {
+  return {
+    id: d.id,
+    chatId: d.chatId || state.chatId,
+    incomingMessage: d.incomingMessage,
+    draftText: d.draftText,
+    finalText: d.finalText ?? null,
+    status: d.status,
+    wasEdited: d.wasEdited,
+    createdAt: d.createdAt,
+  };
+}
+
 function renderDrafts() {
   const listEl = $('drafts');
   listEl.textContent = '';
@@ -326,35 +606,200 @@ function renderDrafts() {
     return;
   }
   for (const d of drafts) {
-    const li = document.createElement('li');
-    li.className = 'list-item draft';
-
-    const header = document.createElement('div');
-    const badge = document.createElement('span');
-    badge.className = `badge badge-${d.status}`;
-    badge.textContent = statusBadge(d.status) + (d.wasEdited ? ' / Edited' : '');
-    const when = document.createElement('span');
-    when.className = 'li-meta';
-    when.textContent = d.createdAt ? new Date(d.createdAt).toLocaleString() : '';
-    header.appendChild(badge);
-    header.appendChild(when);
-
-    const incoming = document.createElement('div');
-    incoming.className = 'draft-line';
-    incoming.innerHTML =
-      `<strong>In:</strong> ${escapeHtml(d.incomingMessage)}<br>` +
-      `<strong>Draft:</strong> ${escapeHtml(d.draftText)}`;
-
-    li.appendChild(header);
-    li.appendChild(incoming);
-    if (d.wasEdited && d.finalText) {
-      const edited = document.createElement('div');
-      edited.className = 'draft-line edited';
-      edited.innerHTML = `<strong>Your correction:</strong> ${escapeHtml(d.finalText)}`;
-      li.appendChild(edited);
-    }
-    listEl.appendChild(li);
+    listEl.appendChild(renderDraftItem(d));
   }
+}
+
+function renderDraftItem(d) {
+  const li = document.createElement('li');
+  li.className = 'list-item draft';
+  li.dataset.draftId = d.id;
+  renderDraftRead(li, d);
+  return li;
+}
+
+function renderDraftRead(li, d) {
+  li.textContent = '';
+  li.className = 'list-item draft';
+
+  const header = document.createElement('div');
+  header.className = 'draft-header';
+  const editBtn = document.createElement('button');
+  editBtn.type = 'button';
+  editBtn.className = 'btn small';
+  editBtn.textContent = 'Edit';
+  editBtn.addEventListener('click', () => {
+    renderDraftEdit(li, d);
+  });
+
+  const badge = document.createElement('span');
+  badge.className = `badge badge-${d.status}`;
+  badge.textContent = statusBadge(d.status) + (d.wasEdited ? ' / Edited' : '');
+  const when = document.createElement('span');
+  when.className = 'li-meta';
+  when.textContent = d.createdAt ? new Date(d.createdAt).toLocaleString() : '';
+
+  header.appendChild(editBtn);
+  header.appendChild(badge);
+  header.appendChild(when);
+
+  const incoming = document.createElement('div');
+  incoming.className = 'draft-line';
+  incoming.innerHTML =
+    `<strong>In:</strong> ${escapeHtml(d.incomingMessage)}<br>` +
+    `<strong>Draft:</strong> ${escapeHtml(d.draftText)}`;
+
+  li.appendChild(header);
+  li.appendChild(incoming);
+  if (d.wasEdited && d.finalText) {
+    const edited = document.createElement('div');
+    edited.className = 'draft-line edited';
+    edited.innerHTML = `<strong>Your correction:</strong> ${escapeHtml(d.finalText)}`;
+    li.appendChild(edited);
+  }
+}
+
+function renderDraftEdit(li, d) {
+  li.textContent = '';
+  li.className = 'list-item draft draft-editing';
+
+  const inLabel = document.createElement('label');
+  inLabel.textContent = 'In:';
+  const inInput = document.createElement('textarea');
+  inInput.value = d.incomingMessage;
+  inInput.rows = 2;
+
+  const draftLabel = document.createElement('label');
+  draftLabel.textContent = 'Draft:';
+  const draftInput = document.createElement('textarea');
+  draftInput.value = d.draftText;
+  draftInput.rows = 2;
+
+  const finalLabel = document.createElement('label');
+  finalLabel.textContent = 'Your correction:';
+  const finalInput = document.createElement('textarea');
+  finalInput.value = d.finalText || '';
+  finalInput.rows = 2;
+  finalInput.placeholder = 'Leave blank if you did not correct this draft';
+
+  const statusLabel = document.createElement('label');
+  statusLabel.textContent = 'Status:';
+  const statusSelect = document.createElement('select');
+  for (const s of ['skipped', 'sent']) {
+    const opt = document.createElement('option');
+    opt.value = s;
+    opt.textContent = statusBadge(s);
+    opt.selected = d.status === s;
+    statusSelect.appendChild(opt);
+  }
+
+  const actions = document.createElement('div');
+  actions.className = 'actions';
+  const saveBtn = document.createElement('button');
+  saveBtn.type = 'button';
+  saveBtn.className = 'btn primary small';
+  saveBtn.textContent = 'Save';
+  saveBtn.addEventListener('click', () => {
+    const incomingMessage = inInput.value.trim();
+    const draftText = draftInput.value.trim();
+    if (!incomingMessage || !draftText) {
+      toast('Both In and Draft text are required.', 'error');
+      return;
+    }
+    const payload = {
+      incomingMessage,
+      draftText,
+      finalText: finalInput.value.trim() || null,
+      status: statusSelect.value,
+    };
+    busy(saveBtn, true, 'Saving…');
+    const request = d.id
+      ? api(`/api/drafts/${encodeURIComponent(d.id)}`, { method: 'PUT', body: JSON.stringify(payload) })
+      : api('/api/drafts', {
+          method: 'POST',
+          body: JSON.stringify({ chatId: state.chatId, ...payload }),
+        });
+    request
+      .then(() => {
+        toast('Correction saved');
+        return loadChat();
+      })
+      .catch((err) => {
+        busy(saveBtn, false);
+        toast(err.message, 'error');
+      });
+  });
+  const cancelBtn = document.createElement('button');
+  cancelBtn.type = 'button';
+  cancelBtn.className = 'btn small';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.addEventListener('click', () => {
+    if (d.id) {
+      renderDraftRead(li, d);
+    } else {
+      li.remove();
+    }
+  });
+
+  li.appendChild(inLabel);
+  li.appendChild(inInput);
+  li.appendChild(draftLabel);
+  li.appendChild(draftInput);
+  li.appendChild(finalLabel);
+  li.appendChild(finalInput);
+  li.appendChild(statusLabel);
+  li.appendChild(statusSelect);
+  actions.appendChild(saveBtn);
+
+  if (d.id) {
+    const deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = 'btn small danger';
+    deleteBtn.textContent = 'Delete';
+    deleteBtn.addEventListener('click', () => {
+      if (!window.confirm('Delete this correction?')) return;
+      busy(deleteBtn, true, 'Deleting…');
+      api(`/api/drafts/${encodeURIComponent(d.id)}`, { method: 'DELETE' })
+        .then(() => {
+          toast('Correction deleted');
+          return loadChat();
+        })
+        .catch((err) => {
+          busy(deleteBtn, false);
+          toast(err.message, 'error');
+        });
+    });
+    actions.appendChild(deleteBtn);
+  }
+
+  actions.appendChild(cancelBtn);
+  li.appendChild(actions);
+}
+
+function addCorrection() {
+  const listEl = $('drafts');
+  if (listEl.children.length > 0 && listEl.children[0].textContent === 'No corrections yet.') {
+    listEl.textContent = '';
+  }
+  const li = makeBlankDraftLi();
+  listEl.appendChild(li);
+  renderDraftEdit(li, {
+    id: null,
+    chatId: state.chatId,
+    incomingMessage: '',
+    draftText: '',
+    finalText: null,
+    status: 'skipped',
+    wasEdited: true,
+    createdAt: null,
+  });
+}
+
+function makeBlankDraftLi() {
+  const li = document.createElement('li');
+  li.className = 'list-item draft';
+  li.dataset.draftId = '';
+  return li;
 }
 
 function escapeHtml(value) {
@@ -372,8 +817,10 @@ function bindEvents() {
   });
   logoutBtn.addEventListener('click', logout);
   promptForm.addEventListener('submit', savePrompt);
-  createChatPromptBtn.addEventListener('click', createChatPrompt);
+  $('prompt-picker').addEventListener('change', onPromptPicked);
   $('add-example').addEventListener('click', () => addFewShotRow());
+  $('add-correction').addEventListener('click', addCorrection);
+  $('add-topic').addEventListener('click', addTopic);
 }
 
 async function init() {

@@ -10,7 +10,15 @@ export const conversationSchema = new Schema({
       timestamp: { type: Date, required: true, default: Date.now },
     },
   ],
-  summary: { type: String, default: '' },
+  topics: [
+    {
+      topicId: { type: String, default: null },
+      label: { type: String, required: true },
+      summary: { type: String, required: true },
+      lastMentioned: { type: Date, required: true, default: Date.now },
+      archived: { type: Boolean, required: true, default: false },
+    },
+  ],
   lastUpdated: { type: Date, required: true, default: Date.now },
 });
 

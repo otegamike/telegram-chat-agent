@@ -20,7 +20,7 @@
         <label>Username <input id="login-username" type="text" autocomplete="username" required /></label>
         <label>Password <input id="login-password" type="password" autocomplete="current-password" required /></label>
         <p id="login-error" class="error" hidden></p>
-        <button type="submit" class="btn primary">Log in</button>
+        <button type="submit" id="login-submit" class="btn primary">Log in</button>
       </form>
     </section>
 
@@ -38,8 +38,13 @@
       <div class="card">
         <h3>Prompt</h3>
         <p id="prompt-fallback" class="muted"></p>
+        <label>Prompt voice
+          <select id="prompt-picker">
+            <option value="">Select a prompt…</option>
+          </select>
+          <small class="muted">Choose a prompt to copy into this chat. The selected prompt is saved as a chat-specific prompt for this chat only.</small>
+        </label>
         <form id="prompt-form" hidden>
-          <label>Key (read-only) <input id="f-key" type="text" disabled /></label>
           <label>Name <input id="f-name" type="text" /></label>
           <label class="check"><input id="f-enabled" type="checkbox" /> Enabled</label>
           <label>System prompt / tone rules
@@ -55,24 +60,32 @@
           </label>
           <div class="actions">
             <button type="submit" class="btn primary">Save</button>
-            <button type="button" id="create-chat-prompt" class="btn" hidden>Create chat-specific prompt</button>
           </div>
           <p id="prompt-error" class="error" hidden></p>
         </form>
       </div>
 
       <div class="card">
-        <h3>History</h3>
-        <p id="history-summary" class="summary-banner" hidden></p>
+        <div class="card-header">
+          <h3>Topics &amp; context</h3>
+          <button type="button" id="add-topic" class="btn small">+ Add context</button>
+        </div>
+        <p id="topic-empty" class="muted" hidden></p>
+        <ul id="topic-list" class="list" hidden></ul>
+        <h3>Recent messages</h3>
         <div id="history" class="history"></div>
       </div>
 
       <div class="card">
-        <h3>Corrections</h3>
+        <div class="card-header">
+          <h3>Corrections</h3>
+          <button type="button" id="add-correction" class="btn small">+ Add correction</button>
+        </div>
         <ul id="drafts" class="list"></ul>
       </div>
     </section>
 
+    <script src="/ui.js"></script>
     <script src="/chat.js"></script>
   </body>
 </html>

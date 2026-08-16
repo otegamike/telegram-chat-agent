@@ -1,6 +1,8 @@
 import { startReviewBot } from './bots/review-bot';
 import { startMessageListener } from './bots/message-listener';
+import { initReviewManager } from './services/review-manager';
 
+initReviewManager();
 startReviewBot();
 
 if (

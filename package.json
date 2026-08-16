@@ -8,6 +8,9 @@
     "build": "tsc",
     "test:db": "npm run build && node dist/scripts/test-db.js",
     "test:draft": "npm run build && node dist/scripts/test-draft.js",
+    "test:memory": "npm run build && node dist/scripts/test-memory.js",
+    "maintain": "npm run build && node dist/scripts/run-maintenance.js",
+    "catch-up": "npm run build && node dist/scripts/run-catch-up.js",
     "login": "npm run build && node dist/scripts/login-telegram.js",
     "sync-chats": "npm run build && node dist/scripts/sync-chats.js",
     "create-admin": "npm run build && node dist/scripts/create-admin.js",
@@ -21,12 +24,14 @@
     "express": "^5.2.1",
     "groq-sdk": "^1.5.0",
     "mongoose": "^9.9.2",
+    "node-cron": "^4.6.0",
     "node-telegram-bot-api": "^1.2.0",
     "telegram": "^2.26.22"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
     "@types/node": "^26.2.0",
+    "@types/node-cron": "^3.0.11",
     "typescript": "^5.9.3"
   }
 }

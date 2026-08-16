@@ -2,7 +2,8 @@ import { ConversationModel } from '../models/Conversation';
 import { DraftModel } from '../models/Draft';
 import { ChatConfigModel } from '../models/ChatConfig';
 import { resolveMasterPrompt } from './master-prompt';
-import { generateDraft, DraftPrompt } from './llm';
+import { generateDraft, DraftPrompt, foldTopicsIntoHistory, TopicEntry, FoldedMessage } from './llm';
+import { selectTopicsForContext } from './topics';
 import { sendDraftNotification } from '../bots/review-bot';
 
 const CONTEXT_WINDOW = 20;
@@ -14,12 +15,39 @@ export interface IncomingMessageInfo {
   timestamp: Date;
 }
 
-function buildContext(messages: { role: 'them' | 'me'; text: string }[]): string {
-  const recent = messages.slice(-CONTEXT_WINDOW);
-  return recent.map((m) => `${m.role === 'me' ? 'Me' : 'Them'}: ${m.text}`).join('\n');
+export interface DraftedReply {
+  draftId: string;
+  draftText: string;
+  notificationMessageId: number | null;
 }
 
-async function loadOrCreateConversation(
+export interface ChatMessage {
+  role: 'them' | 'me';
+  text: string;
+}
+
+export function buildContext(
+  messages: ChatMessage[],
+  selectedTopics: TopicEntry[] = []
+): string {
+  const recent = messages.slice(-CONTEXT_WINDOW);
+  const windowBlock = recent
+    .map((m) => `${m.role === 'me' ? 'Me' : 'Them'}: ${m.text}`)
+    .join('\n');
+  if (selectedTopics.length === 0) {
+    return windowBlock;
+  }
+  const topicsBlock = selectedTopics
+    .map((t) => `${t.label}: ${t.summary}`)
+    .join('\n');
+  return `Earlier conversation topics (background context):
+${topicsBlock}
+
+Recent messages:
+${windowBlock}`;
+}
+
+export async function loadOrCreateConversation(
   chatId: string,
   peerUsername: string
 ): Promise<InstanceType<typeof ConversationModel>> {
@@ -33,21 +61,62 @@ async function loadOrCreateConversation(
   return doc;
 }
 
-export async function processIncomingMessage(info: IncomingMessageInfo): Promise<void> {
-  const { chatId, peerUsername, text, timestamp } = info;
-
-  const config = await ChatConfigModel.findOne({ chatId }).lean().exec();
-  if (!config || !config.autoReplyEnabled) {
-    console.log(`[pipeline] chat=${chatId} not in allow-list (or disabled) — ignored`);
-    return;
-  }
-
+export async function appendIncomingMessage(
+  chatId: string,
+  peerUsername: string,
+  text: string,
+  timestamp: Date
+): Promise<void> {
   const doc = await loadOrCreateConversation(chatId, peerUsername);
   doc.messages.push({ role: 'them', text, timestamp });
   doc.lastUpdated = new Date();
+  await trimConversation(doc);
   await doc.save();
+}
 
-  const context = buildContext(doc.messages as { role: 'them' | 'me'; text: string }[]);
+export async function appendSentMessage(chatId: string, text: string): Promise<void> {
+  const doc = await ConversationModel.findOne({ chatId }).exec();
+  if (!doc) {
+    return;
+  }
+  doc.messages.push({ role: 'me', text, timestamp: new Date() });
+  doc.lastUpdated = new Date();
+  await trimConversation(doc);
+  await doc.save();
+}
+
+async function trimConversation(
+  doc: InstanceType<typeof ConversationModel>
+): Promise<void> {
+  const topics: TopicEntry[] = (doc.topics as unknown as TopicEntry[] | undefined) ?? [];
+  while (doc.messages.length > CONTEXT_WINDOW) {
+    const over = doc.messages.length - CONTEXT_WINDOW;
+    const evicted = doc.messages.splice(0, over) as unknown as FoldedMessage[];
+    try {
+      const next = await foldTopicsIntoHistory(topics, evicted);
+      doc.topics = next as never;
+      topics.length = 0;
+      topics.push(...next);
+    } catch (err) {
+      console.error('[pipeline] topic fold failed (messages still pruned):', err);
+    }
+  }
+}
+
+export async function draftReply(
+  info: IncomingMessageInfo
+): Promise<DraftedReply> {
+  const { chatId, peerUsername, text } = info;
+
+  const conversation = await ConversationModel.findOne({ chatId })
+    .lean()
+    .exec();
+  const topics = (conversation?.topics as unknown as TopicEntry[] | undefined) ?? [];
+  const selectedTopics = selectTopicsForContext(topics, text);
+  const context = buildContext(
+    ((conversation?.messages as unknown) as ChatMessage[] | undefined) ?? [],
+    selectedTopics
+  );
 
   const masterPrompt = await resolveMasterPrompt(chatId);
   const prompt: DraftPrompt = {
@@ -66,7 +135,7 @@ export async function processIncomingMessage(info: IncomingMessageInfo): Promise
     wasEdited: false,
   });
 
-  sendDraftNotification({
+  const notificationMessageId = await sendDraftNotification({
     chatId,
     senderName: peerUsername || 'unknown',
     incomingMessage: text,
@@ -74,5 +143,9 @@ export async function processIncomingMessage(info: IncomingMessageInfo): Promise
     draftId: String(draft._id),
   });
 
-  console.log(`[pipeline] chat=${chatId} drafted (${String(draft._id)})`);
+  return {
+    draftId: String(draft._id),
+    draftText,
+    notificationMessageId,
+  };
 }

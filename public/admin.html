@@ -19,7 +19,7 @@
         <label>Username <input id="login-username" type="text" autocomplete="username" required /></label>
         <label>Password <input id="login-password" type="password" autocomplete="current-password" required /></label>
         <p id="login-error" class="error" hidden></p>
-        <button type="submit" class="btn primary">Log in</button>
+        <button type="submit" id="login-submit" class="btn primary">Log in</button>
       </form>
     </section>
 
@@ -27,6 +27,7 @@
       <nav class="tabs">
         <button id="tab-prompts" class="btn tab active">Prompts</button>
         <button id="tab-chats" class="btn tab">Chats</button>
+        <button id="tab-settings" class="btn tab">Settings</button>
       </nav>
 
       <section id="prompts-view">
@@ -39,7 +40,9 @@
           <div class="card grow">
             <h3 id="prompt-editor-title">Select a prompt</h3>
             <form id="prompt-form" hidden>
-              <label>Key (read-only) <input id="f-key" type="text" disabled /></label>
+              <label>Prompt ID (read-only) <input id="f-key" type="text" disabled />
+                <small class="muted">Unique identifier. "default" is the global default; chat prompts are keyed to their chat.</small>
+              </label>
               <label>Name <input id="f-name" type="text" /></label>
               <label>Chat ID (empty = global default) <input id="f-chatid" type="text" placeholder="e.g. 6166097340" /></label>
               <label class="check"><input id="f-enabled" type="checkbox" /> Enabled</label>
@@ -86,8 +89,28 @@
           <ul id="chat-list" class="list"></ul>
         </div>
       </section>
+
+      <section id="settings-view" hidden>
+        <div class="card">
+          <h3>Settings</h3>
+          <form id="settings-form">
+            <label>Auto-send delay (milliseconds, 0 = disabled)
+              <input id="auto-send-delay" type="number" min="0" step="1000" required />
+            </label>
+            <p class="muted">
+              Drafts are sent automatically after this delay unless you Send, Edit or Skip them first.
+              Default: 240000 ms (4 minutes).
+            </p>
+            <div class="actions">
+              <button type="submit" class="btn primary">Save settings</button>
+            </div>
+            <p id="settings-error" class="error" hidden></p>
+          </form>
+        </div>
+      </section>
     </section>
 
+    <script src="/ui.js"></script>
     <script src="/admin.js"></script>
   </body>
 </html>
