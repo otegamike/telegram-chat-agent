@@ -3,6 +3,7 @@ import { ChatConfigModel } from '../models/ChatConfig';
 import { setReviewHandlers, editDraftNotification, sendEditPrompt, sendDraftNotification, ReviewAction } from '../bots/review-bot';
 import { appendIncomingMessage, appendSentMessage, draftReply, IncomingMessageInfo } from './pipeline';
 import { getSettings } from './settings';
+import { learnFromCorrection } from './corrections';
 import { sendAsUser, markChatAsRead } from './telegram-sender';
 
 type FlowStatus = 'idle' | 'drafting' | 'awaiting' | 'editing';
@@ -173,7 +174,17 @@ async function completeSend(
     draft.wasEdited = true;
   }
   await draft.save();
-  await appendSentMessage(flow.chatId, finalText);
+  await appendSentMessage(flow.chatId, finalText, {
+    correctedFrom: editedText !== null ? draft.draftText : null,
+  });
+  if (editedText !== null) {
+    learnFromCorrection({
+      chatId: flow.chatId,
+      incomingMessage: draft.incomingMessage,
+      draftText: draft.draftText,
+      correctedText: finalText,
+    });
+  }
 
   releaseEditing(flow);
   clearTimer(flow);
@@ -398,7 +409,7 @@ export async function resumePendingDrafts(): Promise<number> {
     try {
       const notificationMessageId = await sendDraftNotification({
         chatId,
-        senderName: peerUsername || 'unknown',
+        senderName: peerUsername || chatId,
         incomingMessage: draft.incomingMessage,
         draftText: draft.draftText,
         draftId: String(draft._id),
@@ -407,7 +418,7 @@ export async function resumePendingDrafts(): Promise<number> {
       await scheduleAutoSend(flow);
       resumed += 1;
       console.log(
-        `[review-manager] resumed pending draft ${draft._id} for chat ${chatId} (${peerUsername || 'unknown'})`
+        `[review-manager] resumed pending draft ${draft._id} for chat ${chatId} (${peerUsername || chatId})`
       );
     } catch (err) {
       console.error(`[review-manager] failed to notify resumed draft ${draft._id} (continuing):`, err);

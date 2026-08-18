@@ -1,6 +1,7 @@
 import cron from 'node-cron';
 import { ConversationModel } from '../models/Conversation';
 import { mergeDuplicateTopics, TopicEntry } from './llm';
+import { drainAllEvictedBuffers } from './pipeline';
 
 const ARCHIVE_DAYS = 90;
 const ARCHIVE_MS = ARCHIVE_DAYS * 24 * 60 * 60 * 1000;
@@ -35,7 +36,7 @@ export async function maintainConversationTopics(
   let next: TopicEntry[] = topics;
   if (topics.length >= 2) {
     try {
-      const result = await mergeDuplicateTopics(topics);
+      const result = await mergeDuplicateTopics(topics, { chatId: doc.chatId });
       if (result.length !== topics.length) {
         merged = true;
         next = result;
@@ -83,8 +84,9 @@ export async function runTopicMaintenance(): Promise<void> {
         archivedCount += 1;
       }
     }
+    const buffered = await drainAllEvictedBuffers();
     console.log(
-      `[maintenance] done — ${docs.length} conversations, ${mergedCount} merged, ${archivedCount} archived`
+      `[maintenance] done — ${docs.length} conversations, ${mergedCount} merged, ${archivedCount} archived, ${buffered} eviction bureau(s) drained`
     );
   } finally {
     running = false;

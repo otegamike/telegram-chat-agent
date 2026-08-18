@@ -9,7 +9,9 @@ const state = {
   currentPrompt: null,
   editing: false,
   tab: 'prompts',
-  settings: { autoSendDelayMs: 240000 },
+  settings: { autoSendDelayMs: 240000, name: '', gender: '' },
+  logs: [],
+  currentLog: null,
 };
 
 const loginView = $('login-view');
@@ -502,6 +504,8 @@ async function loadSettings() {
   try {
     state.settings = (await api('/api/settings')) || state.settings;
     $('auto-send-delay').value = state.settings.autoSendDelayMs;
+    $('settings-name').value = state.settings.name || '';
+    $('settings-gender').value = state.settings.gender || '';
   } catch (err) {
     toast(`Failed to load settings: ${err.message}`, 'error');
   } finally {
@@ -522,14 +526,177 @@ async function saveSettings(evt) {
   try {
     state.settings = await api('/api/settings', {
       method: 'PUT',
-      body: JSON.stringify({ autoSendDelayMs }),
+      body: JSON.stringify({
+        autoSendDelayMs,
+        name: $('settings-name').value.trim(),
+        gender: $('settings-gender').value,
+      }),
     });
     $('auto-send-delay').value = state.settings.autoSendDelayMs;
+    $('settings-name').value = state.settings.name || '';
+    $('settings-gender').value = state.settings.gender || '';
     toast('Settings saved');
   } catch (err) {
     showError($('settings-error'), err.message);
   } finally {
     busy(saveBtn, false);
+  }
+}
+
+const KIND_LABELS = { draft: 'Draft', fold: 'Fold', merge: 'Merge', correction: 'Correction' };
+
+async function loadLogs() {
+  const listEl = $('logs-list');
+  const detailEl = $('logs-detail');
+  const limit = Number($('logs-limit').value || 50);
+  const kind = $('logs-kind').value || '';
+  listEl.textContent = '';
+  const hint = document.createElement('li');
+  hint.className = 'list-item muted loading-hint';
+  hint.textContent = 'Loading AI logs…';
+  listEl.appendChild(hint);
+  try {
+    const qs = new URLSearchParams({ limit: String(limit) });
+    if (kind) qs.set('kind', kind);
+    const body = await api(`/api/ai-logs?${qs.toString()}`);
+    state.logs = body.logs || [];
+    state.currentLog = null;
+  } catch (err) {
+    state.logs = [];
+    state.currentLog = null;
+    detailEl.textContent = `Failed to load AI logs: ${err.message}`;
+  }
+  renderLogList();
+  renderLogDetail();
+}
+
+function renderLogList() {
+  const listEl = $('logs-list');
+  listEl.textContent = '';
+  if (state.logs.length === 0) {
+    const li = document.createElement('li');
+    li.className = 'list-item muted';
+    li.textContent = 'No AI logs yet. They appear after drafts, folds and merges run.';
+    listEl.appendChild(li);
+    return;
+  }
+  for (const log of state.logs) {
+    const li = document.createElement('li');
+    li.className = 'list-item';
+    if (state.currentLog && state.currentLog.id === log.id) {
+      li.classList.add('active');
+    }
+
+    const title = document.createElement('span');
+    title.className = 'li-title';
+    title.textContent = KIND_LABELS[log.kind] || log.kind;
+
+    const badges = document.createElement('span');
+    badges.className = 'log-item-badges';
+    const when = document.createElement('small');
+    when.className = 'li-meta';
+    when.textContent = log.createdAt
+      ? new Date(log.createdAt).toLocaleString()
+      : '';
+    const meta = document.createElement('small');
+    meta.className = 'li-meta';
+    const pieces = [log.model];
+    if (log.chatId) pieces.push(log.chatId);
+    if (log.error) pieces.push('error');
+    meta.textContent = pieces.join(' — ');
+    badges.appendChild(when);
+    badges.appendChild(meta);
+
+    li.appendChild(title);
+    li.appendChild(badges);
+    li.addEventListener('click', () => selectLog(log));
+    listEl.appendChild(li);
+  }
+}
+
+function selectLog(log) {
+  state.currentLog = log;
+  renderLogList();
+  renderLogDetail();
+}
+
+function renderLogDetail() {
+  const detailEl = $('logs-detail');
+  const log = state.currentLog;
+  if (!log) {
+    detailEl.textContent = 'Select a log entry to inspect its full prompt and reply.';
+    detailEl.className = 'log-detail muted';
+    return;
+  }
+  detailEl.textContent = '';
+  detailEl.className = 'log-detail';
+
+  const head = document.createElement('div');
+  const title = document.createElement('strong');
+  title.textContent = `${KIND_LABELS[log.kind] || log.kind} — ${log.model}${log.chatId ? ` — chat ${log.chatId}` : ''}`;
+  head.appendChild(title);
+  const when = document.createElement('div');
+  when.className = 'muted';
+  when.textContent = log.createdAt
+    ? `${new Date(log.createdAt).toLocaleString()} — ${log.durationMs} ms`
+    : `${log.durationMs} ms`;
+  head.appendChild(when);
+  detailEl.appendChild(head);
+
+  if (log.error) {
+    const errTitle = document.createElement('div');
+    errTitle.className = 'log-pane-title';
+    errTitle.textContent = 'Error';
+    detailEl.appendChild(errTitle);
+    const errPre = document.createElement('pre');
+    errPre.className = 'error';
+    errPre.textContent = log.error;
+    detailEl.appendChild(errPre);
+  }
+
+  const sysTitle = document.createElement('div');
+  sysTitle.className = 'log-pane-title';
+  sysTitle.textContent = 'System prompt';
+  detailEl.appendChild(sysTitle);
+  const sysPre = document.createElement('pre');
+  sysPre.textContent = log.systemPrompt || '(none)';
+  detailEl.appendChild(sysPre);
+
+  const userTitle = document.createElement('div');
+  userTitle.className = 'log-pane-title';
+  userTitle.textContent = 'User prompt';
+  detailEl.appendChild(userTitle);
+  const userPre = document.createElement('pre');
+  userPre.textContent = log.userPrompt || '(none)';
+  detailEl.appendChild(userPre);
+
+  if (log.reply) {
+    const replyTitle = document.createElement('div');
+    replyTitle.className = 'log-pane-title';
+    replyTitle.textContent = 'Reply';
+    detailEl.appendChild(replyTitle);
+    const replyPre = document.createElement('pre');
+    replyPre.className = 'reply';
+    replyPre.textContent = log.reply;
+    detailEl.appendChild(replyPre);
+  }
+}
+
+async function clearLogs() {
+  if (!window.confirm('Delete ALL AI logs? This cannot be undone.')) return;
+  const btn = $('clear-logs');
+  busy(btn, true, 'Clearing…');
+  try {
+    await api('/api/ai-logs', { method: 'DELETE' });
+    state.logs = [];
+    state.currentLog = null;
+    renderLogList();
+    renderLogDetail();
+    toast('AI logs cleared');
+  } catch (err) {
+    toast(err.message, 'error');
+  } finally {
+    busy(btn, false);
   }
 }
 
@@ -555,9 +722,14 @@ function switchTab(tab) {
   $('tab-prompts').classList.toggle('active', tab === 'prompts');
   $('tab-chats').classList.toggle('active', tab === 'chats');
   $('tab-settings').classList.toggle('active', tab === 'settings');
+  $('tab-logs').classList.toggle('active', tab === 'logs');
   $('prompts-view').hidden = tab !== 'prompts';
   $('chats-view').hidden = tab !== 'chats';
   $('settings-view').hidden = tab !== 'settings';
+  $('logs-view').hidden = tab !== 'logs';
+  if (tab === 'logs') {
+    loadLogs();
+  }
 }
 
 function bindEvents() {
@@ -569,6 +741,7 @@ function bindEvents() {
   $('tab-prompts').addEventListener('click', () => switchTab('prompts'));
   $('tab-chats').addEventListener('click', () => switchTab('chats'));
   $('tab-settings').addEventListener('click', () => switchTab('settings'));
+  $('tab-logs').addEventListener('click', () => switchTab('logs'));
   $('new-prompt').addEventListener('click', startNewPrompt);
   promptForm.addEventListener('submit', savePrompt);
   deletePromptBtn.addEventListener('click', deletePrompt);
@@ -577,6 +750,10 @@ function bindEvents() {
   $('chat-picker').addEventListener('change', onChatPicked);
   $('chat-refresh').addEventListener('click', loadChatDirectory);
   $('settings-form').addEventListener('submit', saveSettings);
+  $('clear-logs').addEventListener('click', clearLogs);
+  $('logs-refresh').addEventListener('click', loadLogs);
+  $('logs-limit').addEventListener('change', loadLogs);
+  $('logs-kind').addEventListener('change', loadLogs);
 }
 
 async function init() {

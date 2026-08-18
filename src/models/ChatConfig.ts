@@ -3,6 +3,8 @@ import { Schema, model, InferSchemaType } from 'mongoose';
 export const chatConfigSchema = new Schema({
   chatId: { type: String, required: true, unique: true, index: true },
   peerUsername: { type: String, default: '' },
+  contactName: { type: String, default: '' },
+  gender: { type: String, default: '', enum: ['', 'male', 'female', 'they'] },
   autoReplyEnabled: { type: Boolean, required: true, default: false },
   lastProcessedMessageId: { type: Number, default: null },
   createdAt: { type: Date, required: true, default: Date.now },

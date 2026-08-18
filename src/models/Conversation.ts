@@ -2,12 +2,21 @@ import { Schema, model, InferSchemaType } from 'mongoose';
 
 export const conversationSchema = new Schema({
   chatId: { type: String, required: true, unique: true, index: true },
-  peerUsername: { type: String, required: true },
+  peerUsername: { type: String, default: '' },
   messages: [
     {
       role: { type: String, enum: ['them', 'me'], required: true },
       text: { type: String, required: true },
       timestamp: { type: Date, required: true, default: Date.now },
+      correctedFrom: { type: String, default: null },
+    },
+  ],
+  evicted: [
+    {
+      role: { type: String, enum: ['them', 'me'], required: true },
+      text: { type: String, required: true },
+      timestamp: { type: Date, required: true, default: Date.now },
+      correctedFrom: { type: String, default: null },
     },
   ],
   topics: [

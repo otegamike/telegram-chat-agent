@@ -28,6 +28,7 @@
         <button id="tab-prompts" class="btn tab active">Prompts</button>
         <button id="tab-chats" class="btn tab">Chats</button>
         <button id="tab-settings" class="btn tab">Settings</button>
+        <button id="tab-logs" class="btn tab">AI Logs</button>
       </nav>
 
       <section id="prompts-view">
@@ -94,6 +95,18 @@
         <div class="card">
           <h3>Settings</h3>
           <form id="settings-form">
+            <label>Your name
+              <input id="settings-name" type="text" placeholder="First name used as the &quot;me&quot; label in prompts" />
+            </label>
+            <label>Your gender
+              <select id="settings-gender">
+                <option value="">Not set</option>
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+                <option value="they">Non-binary / they</option>
+              </select>
+              <small class="muted">Used to write natural pronouns when the agent replies as you. Leave unset for neutral wording.</small>
+            </label>
             <label>Auto-send delay (milliseconds, 0 = disabled)
               <input id="auto-send-delay" type="number" min="0" step="1000" required />
             </label>
@@ -106,6 +119,44 @@
             </div>
             <p id="settings-error" class="error" hidden></p>
           </form>
+        </div>
+      </section>
+
+      <section id="logs-view" hidden>
+        <div class="card">
+          <div class="card-header">
+            <h3>AI logs</h3>
+            <button type="button" id="clear-logs" class="btn small danger">Clear all logs</button>
+          </div>
+          <p class="muted">
+            Raw prompts and replies for every draft, fold and merge. The newest 500 are kept
+            (cap is configurable via <code>AI_LOG_LIMIT</code>).
+          </p>
+          <div class="row">
+            <label for="logs-limit" class="check">Show:</label>
+            <select id="logs-limit">
+              <option value="20">20</option>
+              <option value="50" selected>50</option>
+              <option value="100">100</option>
+              <option value="200">200</option>
+              <option value="500">500</option>
+            </select>
+            <label for="logs-kind" class="check">Kind:</label>
+            <select id="logs-kind">
+              <option value="">All</option>
+              <option value="draft">Draft</option>
+              <option value="fold">Fold</option>
+              <option value="merge">Merge</option>
+              <option value="correction">Correction</option>
+            </select>
+            <button type="button" id="logs-refresh" class="btn small">Reload</button>
+          </div>
+          <div class="log-layout">
+            <ul id="logs-list" class="list log-list"></ul>
+            <div id="logs-detail" class="log-detail muted">
+              Select a log entry to inspect its full prompt and reply.
+            </div>
+          </div>
         </div>
       </section>
     </section>

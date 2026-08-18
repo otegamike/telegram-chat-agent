@@ -3,7 +3,13 @@ import { SettingsModel } from '../models/Settings';
 const SETTINGS_KEY = 'global';
 const DEFAULT_DELAY_MS = 240000;
 
-let cached: { autoSendDelayMs: number } | null = null;
+export interface AppSettings {
+  autoSendDelayMs: number;
+  name: string;
+  gender: '' | 'male' | 'female' | 'they';
+}
+
+const GENDERS: AppSettings['gender'][] = ['', 'male', 'female', 'they'];
 
 function delayFromEnv(): number {
   const raw = process.env.AUTO_SEND_DELAY_MS;
@@ -14,10 +20,11 @@ function delayFromEnv(): number {
   return Number.isFinite(value) && value >= 0 ? Math.floor(value) : DEFAULT_DELAY_MS;
 }
 
-export async function ensureSettings(): Promise<{ autoSendDelayMs: number }> {
-  if (cached) {
-    return cached;
-  }
+function normalizeGender(raw: unknown): AppSettings['gender'] {
+  return GENDERS.includes(raw as AppSettings['gender']) ? (raw as AppSettings['gender']) : '';
+}
+
+export async function ensureSettings(): Promise<AppSettings> {
   let doc = await SettingsModel.findOne({ key: SETTINGS_KEY }).exec();
   if (!doc) {
     doc = await SettingsModel.create({
@@ -25,29 +32,36 @@ export async function ensureSettings(): Promise<{ autoSendDelayMs: number }> {
       autoSendDelayMs: delayFromEnv(),
     });
   }
-  cached = { autoSendDelayMs: doc.autoSendDelayMs };
-  return cached;
+  return {
+    autoSendDelayMs: doc.autoSendDelayMs,
+    name: doc.name || '',
+    gender: normalizeGender(doc.gender),
+  };
 }
 
-export async function getSettings(): Promise<{ autoSendDelayMs: number }> {
+export async function getSettings(): Promise<AppSettings> {
   return ensureSettings();
 }
 
 export async function updateSettings(patch: {
   autoSendDelayMs?: number;
-}): Promise<{ autoSendDelayMs: number }> {
+  name?: string;
+  gender?: AppSettings['gender'];
+}): Promise<AppSettings> {
   const current = await ensureSettings();
-  const next = {
+  const next: AppSettings = {
     autoSendDelayMs:
       patch.autoSendDelayMs !== undefined && Number.isFinite(patch.autoSendDelayMs)
         ? Math.max(0, Math.floor(patch.autoSendDelayMs))
         : current.autoSendDelayMs,
+    name:
+      typeof patch.name === 'string' ? patch.name.trim() : current.name,
+    gender: patch.gender !== undefined ? normalizeGender(patch.gender) : current.gender,
   };
   await SettingsModel.updateOne(
     { key: SETTINGS_KEY },
     { $set: { ...next, updatedAt: new Date() } },
     { upsert: true }
   );
-  cached = next;
   return next;
 }

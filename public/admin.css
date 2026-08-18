@@ -539,3 +539,95 @@ header h1 {
   font-size: 1.1rem;
   margin: 0 auto 0 0;
 }
+
+.log-layout {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 1rem;
+  align-items: start;
+  margin-top: 0.75rem;
+}
+
+@media (max-width: 720px) {
+  .log-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.log-list {
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.log-list .list-item {
+  flex-direction: column;
+  align-items: stretch;
+  cursor: pointer;
+}
+
+.log-list .list-item.active {
+  border-color: var(--accent);
+}
+
+.log-list .li-meta {
+  font-size: 0.75rem;
+}
+
+.log-item-badges {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.log-detail {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem;
+  min-height: 300px;
+  overflow: auto;
+}
+
+.log-pane-title {
+  font-weight: 600;
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin: 0.9rem 0 0.3rem;
+}
+
+.log-detail pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, "Cascadia Mono", Consolas, monospace;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  margin: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.6rem;
+}
+
+.log-detail pre.error {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.log-detail .reply {
+  border-color: #15803d;
+}
+
+.chat-name-row {
+  margin-top: 0.75rem;
+}
+
+.chat-name-label {
+  flex: 1 1 180px;
+  margin-bottom: 0;
+  font-size: 0.9rem;
+}
+
+.chat-name-label input,
+.chat-name-label select {
+  margin-top: 0.25rem;
+}

@@ -10,8 +10,10 @@ import { ChatConfigModel, ChatConfig } from '../models/ChatConfig';
 import { TelegramChatModel } from '../models/TelegramChat';
 import { ConversationModel } from '../models/Conversation';
 import { DraftModel } from '../models/Draft';
+import { AiLogModel } from '../models/AiLog';
 import { ensureDefaultMasterPrompt } from '../services/master-prompt';
 import { getSettings, updateSettings } from '../services/settings';
+import { learnFromCorrection } from '../services/corrections';
 
 const COOKIE_NAME = 'adtoken';
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -132,9 +134,26 @@ function serializeChatConfig(doc: Record<string, unknown> & { _id: unknown }): R
     id: String(doc._id),
     chatId: doc.chatId,
     peerUsername: doc.peerUsername ?? '',
+    contactName: doc.contactName ?? '',
+    gender: doc.gender ?? '',
     autoReplyEnabled: doc.autoReplyEnabled,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
+  };
+}
+
+function serializeAiLog(doc: Record<string, unknown> & { _id: unknown }): Record<string, unknown> {
+  return {
+    id: String(doc._id),
+    kind: doc.kind,
+    chatId: doc.chatId ?? null,
+    model: doc.model,
+    systemPrompt: doc.systemPrompt,
+    userPrompt: doc.userPrompt,
+    reply: doc.reply ?? null,
+    error: doc.error ?? null,
+    durationMs: doc.durationMs,
+    createdAt: doc.createdAt,
   };
 }
 
@@ -401,6 +420,8 @@ export async function startAdminServer(): Promise<void> {
         ? {
             chatId: config.chatId,
             peerUsername: config.peerUsername ?? '',
+            contactName: config.contactName ?? '',
+            gender: config.gender ?? '',
             autoReplyEnabled: config.autoReplyEnabled,
           }
         : null,
@@ -545,6 +566,15 @@ export async function startAdminServer(): Promise<void> {
     if (typeof req.body?.peerUsername === 'string') {
       update.peerUsername = req.body.peerUsername.trim();
     }
+    if (typeof req.body?.contactName === 'string') {
+      update.contactName = req.body.contactName.trim();
+    }
+    if (typeof req.body?.gender === 'string') {
+      const gender = req.body.gender;
+      if (gender === '' || gender === 'male' || gender === 'female' || gender === 'they') {
+        update.gender = gender;
+      }
+    }
 
     const config = await ChatConfigModel.findOneAndUpdate(
       { chatId },
@@ -582,6 +612,14 @@ export async function startAdminServer(): Promise<void> {
       status,
       wasEdited: !!finalText && finalText !== draftText,
     });
+    if (draft.wasEdited && finalText) {
+      learnFromCorrection({
+        chatId,
+        incomingMessage: draft.incomingMessage,
+        draftText: draft.draftText,
+        correctedText: finalText,
+      });
+    }
     res.status(201).json(serializeDraft(draft.toObject() as never));
   });
 
@@ -608,6 +646,14 @@ export async function startAdminServer(): Promise<void> {
     draft.wasEdited = !!draft.finalText && draft.finalText !== draft.draftText;
 
     await draft.save();
+    if (draft.wasEdited && draft.finalText) {
+      learnFromCorrection({
+        chatId: draft.chatId,
+        incomingMessage: draft.incomingMessage,
+        draftText: draft.draftText,
+        correctedText: draft.finalText,
+      });
+    }
     res.json(serializeDraft(draft.toObject() as never));
   });
 
@@ -627,14 +673,59 @@ export async function startAdminServer(): Promise<void> {
   });
 
   app.put('/api/settings', requireAuth, async (req, res) => {
+    const patch: { autoSendDelayMs?: number; name?: string; gender?: '' | 'male' | 'female' | 'they' } = {};
+
     const raw = req.body?.autoSendDelayMs;
-    const autoSendDelayMs = typeof raw === 'number' ? raw : Number(raw);
-    if (!Number.isFinite(autoSendDelayMs) || autoSendDelayMs < 0) {
-      res.status(400).json({ error: 'autoSendDelayMs must be a non-negative number (0 disables auto-send)' });
-      return;
+    if (raw !== undefined) {
+      const autoSendDelayMs = typeof raw === 'number' ? raw : Number(raw);
+      if (!Number.isFinite(autoSendDelayMs) || autoSendDelayMs < 0) {
+        res.status(400).json({ error: 'autoSendDelayMs must be a non-negative number (0 disables auto-send)' });
+        return;
+      }
+      patch.autoSendDelayMs = autoSendDelayMs;
     }
-    const settings = await updateSettings({ autoSendDelayMs });
+    if (typeof req.body?.name === 'string') {
+      patch.name = req.body.name;
+    }
+    if (typeof req.body?.gender === 'string') {
+      const gender = req.body.gender;
+      if (gender !== '' && gender !== 'male' && gender !== 'female' && gender !== 'they') {
+        res.status(400).json({ error: 'gender must be one of "", "male", "female" or "they"' });
+        return;
+      }
+      patch.gender = gender;
+    }
+
+    const settings = await updateSettings(patch);
     res.json(settings);
+  });
+
+  app.get('/api/ai-logs', requireAuth, async (req, res) => {
+    const rawLimit = req.query.limit;
+    let limit = 50;
+    if (rawLimit !== undefined) {
+      const parsed = Number(rawLimit);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        limit = Math.min(Math.floor(parsed), 500);
+      }
+    }
+    const kind = typeof req.query.kind === 'string' && req.query.kind ? req.query.kind : null;
+    const filter: Record<string, unknown> = {};
+    if (kind && (kind === 'draft' || kind === 'fold' || kind === 'merge' || kind === 'correction')) {
+      filter.kind = kind;
+    }
+
+    const logs = await AiLogModel.find(filter).sort({ createdAt: -1 }).limit(limit).lean().exec();
+    res.json({
+      logs: logs.map((l) => serializeAiLog(l as never)),
+      count: logs.length,
+      limit,
+    });
+  });
+
+  app.delete('/api/ai-logs', requireAuth, async (_req, res) => {
+    await AiLogModel.deleteMany({}).exec();
+    res.json({ ok: true });
   });
 
   app.use((req, res) => {

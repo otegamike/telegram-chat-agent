@@ -160,6 +160,35 @@ function renderHeader() {
       cb.disabled = false;
     }
   };
+
+  $('contact-name').value = config.contactName || '';
+  $('contact-gender').value = config.gender || '';
+}
+
+async function saveContact() {
+  const name = $('contact-name').value.trim();
+  const gender = $('contact-gender').value;
+  const btn = $('save-contact');
+  busy(btn, true, 'Saving…');
+  try {
+    const saved = await api(`/api/chat-configs/${encodeURIComponent(state.chatId)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ contactName: name, gender }),
+    });
+    if (!state.data.config) {
+      state.data.config = {};
+    }
+    state.data.config.contactName = saved.contactName || '';
+    state.data.config.gender = saved.gender || '';
+    $('contact-name').value = saved.contactName || '';
+    $('contact-gender').value = saved.gender || '';
+    renderHeader();
+    toast('Contact saved');
+  } catch (err) {
+    toast(err.message, 'error');
+  } finally {
+    busy(btn, false);
+  }
 }
 
 function renderFewShotRows(examples) {
@@ -821,6 +850,7 @@ function bindEvents() {
   $('add-example').addEventListener('click', () => addFewShotRow());
   $('add-correction').addEventListener('click', addCorrection);
   $('add-topic').addEventListener('click', addTopic);
+  $('save-contact').addEventListener('click', saveContact);
 }
 
 async function init() {

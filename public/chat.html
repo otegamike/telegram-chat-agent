@@ -30,9 +30,25 @@
       <div class="card">
         <h2 id="chat-title">Chat</h2>
         <p id="chat-meta" class="muted"></p>
-        <label class="check">
-          <input id="auto-reply" type="checkbox" /> Auto-reply enabled
-        </label>
+        <div class="row">
+          <label class="check">
+            <input id="auto-reply" type="checkbox" /> Auto-reply enabled
+          </label>
+        </div>
+        <div class="row chat-name-row">
+          <label class="chat-name-label">Contact name
+            <input id="contact-name" type="text" placeholder="First name for the &quot;them&quot; label in prompts" />
+          </label>
+          <label class="chat-name-label">Contact gender
+            <select id="contact-gender">
+              <option value="">Not set</option>
+              <option value="male">Male</option>
+              <option value="female">Female</option>
+              <option value="they">Non-binary / they</option>
+            </select>
+          </label>
+          <button type="button" id="save-contact" class="btn small">Save contact</button>
+        </div>
       </div>
 
       <div class="card">
